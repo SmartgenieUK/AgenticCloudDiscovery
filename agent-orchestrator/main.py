@@ -10,6 +10,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 from pydantic import BaseModel, EmailStr, Field, validator
+from starlette.responses import RedirectResponse
+
+from authlib.integrations.httpx_client import OAuth2Session
 
 try:
     from azure.cosmos import CosmosClient, PartitionKey, exceptions as cosmos_exceptions
@@ -35,11 +38,19 @@ class Settings:
         origins = os.getenv("CORS_ALLOW_ORIGINS", "http://localhost:5173")
         self.cors_allow_origins = [origin.strip() for origin in origins.split(",") if origin.strip()]
         self.cookie_secure = os.getenv("COOKIE_SECURE", "false").lower() == "true"
+        self.ui_base_url = os.getenv("UI_BASE_URL", "http://localhost:5173")
+        self.google_client_id = os.getenv("GOOGLE_CLIENT_ID")
+        self.google_client_secret = os.getenv("GOOGLE_CLIENT_SECRET")
+        self.google_redirect_uri = os.getenv("GOOGLE_REDIRECT_URI", "http://localhost:8000/auth/oauth/google/callback")
+        self.microsoft_client_id = os.getenv("MICROSOFT_CLIENT_ID")
+        self.microsoft_client_secret = os.getenv("MICROSOFT_CLIENT_SECRET")
+        self.microsoft_redirect_uri = os.getenv("MICROSOFT_REDIRECT_URI", "http://localhost:8000/auth/oauth/microsoft/callback")
 
 
 settings = Settings()
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 rate_limit_store: Dict[str, List[float]] = {}
+oauth_state_store: Dict[str, Dict] = {}
 
 
 class RegisterEmailRequest(BaseModel):
@@ -187,6 +198,46 @@ def get_repository() -> UserRepository:
 
 
 repo_provider: UserRepository = get_repository()
+oauth_providers = ["google", "microsoft"]
+
+
+def get_oauth_config(provider: str) -> Dict:
+    configs = {
+        "google": {
+            "client_id": settings.google_client_id,
+            "client_secret": settings.google_client_secret,
+            "authorize_url": "https://accounts.google.com/o/oauth2/v2/auth",
+            "token_url": "https://oauth2.googleapis.com/token",
+            "userinfo_url": "https://openidconnect.googleapis.com/v1/userinfo",
+            "redirect_uri": settings.google_redirect_uri,
+            "scope": ["openid", "email", "profile"],
+        },
+        "microsoft": {
+            "client_id": settings.microsoft_client_id,
+            "client_secret": settings.microsoft_client_secret,
+            "authorize_url": "https://login.microsoftonline.com/consumers/oauth2/v2.0/authorize",
+            "token_url": "https://login.microsoftonline.com/consumers/oauth2/v2.0/token",
+            "userinfo_url": "https://graph.microsoft.com/oidc/userinfo",
+            "redirect_uri": settings.microsoft_redirect_uri,
+            "scope": ["openid", "email", "profile"],
+        },
+    }
+    config = configs.get(provider)
+    if not config:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported provider.")
+    if not config["client_id"] or not config["client_secret"]:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"{provider} OAuth not configured.")
+    return config
+
+
+def get_oauth_client(provider: str) -> OAuth2Session:
+    config = get_oauth_config(provider)
+    return OAuth2Session(
+        client_id=config["client_id"],
+        client_secret=config["client_secret"],
+        scope=config["scope"],
+        redirect_uri=config["redirect_uri"],
+    )
 
 
 def enforce_rate_limit(scope: str, limit: int = 10, window_seconds: int = 60) -> None:
@@ -270,23 +321,89 @@ async def add_correlation_id(request: Request, call_next):
 
 @app.get("/auth/oauth/providers")
 def list_providers() -> Dict[str, List[str]]:
-    return {"providers": ["google", "microsoft"]}
+    return {"providers": oauth_providers}
 
 
 @app.get("/auth/oauth/{provider}/start")
-def oauth_start(provider: str) -> Dict[str, str]:
-    raise HTTPException(
-        status_code=status.HTTP_501_NOT_IMPLEMENTED,
-        detail=f"OAuth start not yet implemented for {provider}.",
+def oauth_start(provider: str, request: Request) -> Dict[str, str]:
+    if provider not in oauth_providers:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported provider.")
+    client_ip = request.client.host if request.client else "unknown"
+    enforce_rate_limit(f"oauth_start:{client_ip}")
+    session = get_oauth_client(provider)
+    config = get_oauth_config(provider)
+    authorization_url, state = session.create_authorization_url(
+        config["authorize_url"],
+        state=str(uuid.uuid4()),
+        prompt="select_account",
     )
+    oauth_state_store[state] = {"provider": provider, "created_at": time.time()}
+    return {"authorization_url": authorization_url, "state": state}
 
 
 @app.get("/auth/oauth/{provider}/callback")
-def oauth_callback(provider: str) -> Dict[str, str]:
-    raise HTTPException(
-        status_code=status.HTTP_501_NOT_IMPLEMENTED,
-        detail=f"OAuth callback not yet implemented for {provider}.",
-    )
+def oauth_callback(provider: str, request: Request, response: Response, code: Optional[str] = None, state: Optional[str] = None):
+    if provider not in oauth_providers:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Unsupported provider.")
+    if not code or not state:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Missing OAuth parameters.")
+    state_entry = oauth_state_store.get(state)
+    if not state_entry or state_entry.get("provider") != provider or (time.time() - state_entry.get("created_at", 0)) > 600:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid or expired state.")
+    config = get_oauth_config(provider)
+    session = get_oauth_client(provider)
+    try:
+        session.fetch_token(config["token_url"], code=code)
+        userinfo_resp = session.get(config["userinfo_url"])
+        userinfo = userinfo_resp.json()
+    except Exception as exc:
+        logger.exception("oauth_callback_failed correlation_id=%s provider=%s error=%s", getattr(request.state, "correlation_id", ""), provider, exc)
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="OAuth callback failed.")
+    email = userinfo.get("email")
+    subject = userinfo.get("sub") or userinfo.get("id")
+    name = userinfo.get("name") or userinfo.get("preferred_username") or (email.split("@")[0] if email else "")
+    if not email or not subject:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="OAuth profile missing required fields.")
+    repo = repo_provider
+    existing = repo.get_by_email(email)
+    if existing and existing.get("auth_provider") != provider:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Email already registered with another provider.")
+    now = datetime.datetime.utcnow().isoformat()
+    if not existing:
+        user_doc = {
+            "user_id": str(uuid.uuid4()),
+            "name": name,
+            "email": email,
+            "phone": None,
+            "designation": None,
+            "company_address": None,
+            "auth_provider": provider,
+            "provider_subject_id": subject,
+            "password_hash": None,
+            "created_at": now,
+            "updated_at": now,
+            "last_login_at": now,
+        }
+        saved = repo.create_user(user_doc)
+    else:
+        existing.update(
+            {
+                "provider_subject_id": existing.get("provider_subject_id") or subject,
+                "last_login_at": now,
+                "updated_at": now,
+            }
+        )
+        saved = repo.update_user(existing)
+    access_token = create_token({"sub": saved["user_id"], "email": saved["email"]}, datetime.timedelta(minutes=settings.access_token_minutes), "access")
+    refresh_token = create_token({"sub": saved["user_id"], "email": saved["email"]}, datetime.timedelta(days=settings.refresh_token_days), "refresh")
+    oauth_state_store.pop(state, None)
+    needs_profile = not saved.get("phone") or not saved.get("designation")
+    target_path = "/complete-profile" if needs_profile else "/dashboard"
+    target = f"{settings.ui_base_url.rstrip('/')}{target_path}"
+    logger.info("oauth_login_success correlation_id=%s provider=%s email=%s", getattr(request.state, "correlation_id", ""), provider, email)
+    redirect_response = RedirectResponse(url=target, status_code=status.HTTP_302_FOUND)
+    set_session_cookies(redirect_response, access_token, refresh_token)
+    return redirect_response
 
 
 @app.post("/auth/register-email", response_model=UserProfile)

@@ -13,6 +13,11 @@ from main import InMemoryUserRepository, app  # type: ignore  # noqa: E402
 
 def fresh_client() -> TestClient:
     main.repo_provider = InMemoryUserRepository()
+    main.oauth_state_store = {}
+    main.settings.google_client_id = "test-google-id"
+    main.settings.google_client_secret = "test-google-secret"
+    main.settings.microsoft_client_id = "test-ms-id"
+    main.settings.microsoft_client_secret = "test-ms-secret"
     return TestClient(app)
 
 
@@ -85,3 +90,44 @@ def test_complete_profile_updates_required_fields():
     assert body["name"] == "Profile Updated"
     assert body["phone"] == "777888999"
     assert body["designation"] == "Lead"
+
+
+class FakeOAuthClient:
+    def __init__(self, userinfo: dict):
+        self.userinfo = userinfo
+
+    def create_authorization_url(self, url: str, state: str = None, **kwargs):
+        return f"{url}?state={state or 'state'}", state or "state"
+
+    def fetch_token(self, token_url: str, code: str):
+        return {"access_token": "fake"}
+
+    def get(self, url: str):
+        class R:
+            def __init__(self, data):
+                self._data = data
+
+            def json(self):
+                return self._data
+
+        return R(self.userinfo)
+
+
+def test_oauth_google_flow_creates_user(monkeypatch):
+    client = fresh_client()
+    userinfo = {"sub": "google-subject", "email": "oauth@example.com", "name": "OAuth User"}
+
+    def fake_client(provider: str):
+        assert provider == "google"
+        return FakeOAuthClient(userinfo)
+
+    monkeypatch.setattr(main, "get_oauth_client", fake_client)
+    start_resp = client.get("/auth/oauth/google/start")
+    assert start_resp.status_code == 200
+    state = start_resp.json()["state"]
+    callback_resp = client.get(f"/auth/oauth/google/callback?state={state}&code=fake-code", allow_redirects=False)
+    assert callback_resp.status_code in (302, 307)
+    assert "complete-profile" in callback_resp.headers["location"]
+    created = main.repo_provider.get_by_email("oauth@example.com")
+    assert created is not None
+    assert created["auth_provider"] == "google"

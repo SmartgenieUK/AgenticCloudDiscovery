@@ -26,8 +26,16 @@ const Login = () => {
     }
   };
 
-  const handleOAuth = (provider) => {
-    setError(`${provider} sign-in coming soon.`);
+  const handleOAuth = async (provider) => {
+    setError("");
+    setLoading(true);
+    try {
+      const data = await api.startOAuth(provider);
+      window.location = data.authorization_url;
+    } catch (err) {
+      setError(err.message);
+      setLoading(false);
+    }
   };
 
   return (
@@ -51,10 +59,10 @@ const Login = () => {
         </div>
       </form>
       <div className="oauth-buttons" style={{ marginTop: "12px" }}>
-        <button className="secondary" onClick={() => handleOAuth("Google")}>
+        <button className="secondary" onClick={() => handleOAuth("google")} disabled={loading}>
           Continue with Google
         </button>
-        <button className="secondary" onClick={() => handleOAuth("Microsoft")}>
+        <button className="secondary" onClick={() => handleOAuth("microsoft")} disabled={loading}>
           Continue with Microsoft
         </button>
       </div>

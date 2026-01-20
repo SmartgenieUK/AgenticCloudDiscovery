@@ -33,7 +33,16 @@ const Register = () => {
       return;
     }
     if (method !== "email") {
-      setError(`${method} registration will be enabled after OAuth setup.`);
+      setLoading(true);
+      try {
+        const data = await api.startOAuth(method);
+        window.location = data.authorization_url;
+        return;
+      } catch (err) {
+        setError(err.message);
+      } finally {
+        setLoading(false);
+      }
       return;
     }
     if (form.password !== form.confirm_password) {

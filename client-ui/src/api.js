@@ -23,4 +23,5 @@ export const api = {
   registerEmail: (payload) => request("/auth/register-email", { method: "POST", body: JSON.stringify(payload) }),
   completeProfile: (payload) => request("/auth/complete-profile", { method: "POST", body: JSON.stringify(payload) }),
   me: () => request("/me"),
+  startOAuth: (provider) => request(`/auth/oauth/${provider}/start`, { method: "GET" }),
 };
