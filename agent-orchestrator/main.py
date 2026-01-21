@@ -41,6 +41,7 @@ class Settings:
         origins = os.getenv("CORS_ALLOW_ORIGINS", "http://localhost:5173")
         self.cors_allow_origins = [origin.strip() for origin in origins.split(",") if origin.strip()]
         self.cookie_secure = os.getenv("COOKIE_SECURE", "false").lower() == "true"
+        self.cookie_samesite = os.getenv("COOKIE_SAMESITE", "lax").lower()
         self.ui_base_url = os.getenv("UI_BASE_URL", "http://localhost:5173")
         self.google_client_id = os.getenv("GOOGLE_CLIENT_ID")
         self.google_client_secret = os.getenv("GOOGLE_CLIENT_SECRET")
@@ -51,7 +52,7 @@ class Settings:
 
 
 settings = Settings()
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+pwd_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
 rate_limit_store: Dict[str, List[float]] = {}
 oauth_state_store: Dict[str, Dict] = {}
 
@@ -161,7 +162,16 @@ class CosmosUserRepository(UserRepository):
         try:
             return self.container.read_item(item=user_id, partition_key=user_id)
         except Exception:
-            return None
+            # Fallback to query in case partition key differs or replicas lag
+            query = "SELECT * FROM c WHERE c.user_id = @uid OR c.id = @uid"
+            items = list(
+                self.container.query_items(
+                    query=query,
+                    parameters=[{"name": "@uid", "value": user_id}],
+                    enable_cross_partition_query=True,
+                )
+            )
+            return items[0] if items else None
 
     def create_user(self, doc: Dict) -> Dict:
         doc["id"] = doc.get("id") or doc.get("user_id")
@@ -269,12 +279,13 @@ def create_token(data: Dict, expires_delta: datetime.timedelta, token_type: str)
 
 
 def set_session_cookies(response: Response, access_token: str, refresh_token: str) -> None:
+    samesite_value = settings.cookie_samesite if settings.cookie_samesite in {"lax", "strict", "none"} else "lax"
     response.set_cookie(
         key="access_token",
         value=access_token,
         httponly=True,
         secure=settings.cookie_secure,
-        samesite="lax",
+        samesite=samesite_value,
         max_age=settings.access_token_minutes * 60,
     )
     response.set_cookie(
@@ -282,7 +293,7 @@ def set_session_cookies(response: Response, access_token: str, refresh_token: st
         value=refresh_token,
         httponly=True,
         secure=settings.cookie_secure,
-        samesite="lax",
+        samesite=samesite_value,
         max_age=settings.refresh_token_days * 24 * 60 * 60,
     )
 
