@@ -12,7 +12,10 @@ from passlib.context import CryptContext
 from pydantic import BaseModel, EmailStr, Field, validator
 from starlette.responses import RedirectResponse
 
-from authlib.integrations.httpx_client import OAuth2Session
+from authlib.integrations.requests_client import OAuth2Session
+from dotenv import load_dotenv
+
+load_dotenv()
 
 try:
     from azure.cosmos import CosmosClient, PartitionKey, exceptions as cosmos_exceptions
@@ -161,9 +164,11 @@ class CosmosUserRepository(UserRepository):
             return None
 
     def create_user(self, doc: Dict) -> Dict:
+        doc["id"] = doc.get("id") or doc.get("user_id")
         return self.container.create_item(doc)
 
     def update_user(self, doc: Dict) -> Dict:
+        doc["id"] = doc.get("id") or doc.get("user_id")
         return self.container.upsert_item(doc)
 
 
@@ -178,10 +183,12 @@ class InMemoryUserRepository(UserRepository):
         return self.users.get(user_id)
 
     def create_user(self, doc: Dict) -> Dict:
+        doc["id"] = doc.get("id") or doc.get("user_id")
         self.users[doc["user_id"]] = doc
         return doc
 
     def update_user(self, doc: Dict) -> Dict:
+        doc["id"] = doc.get("id") or doc.get("user_id")
         self.users[doc["user_id"]] = doc
         return doc
 
@@ -372,6 +379,7 @@ def oauth_callback(provider: str, request: Request, response: Response, code: Op
     if not existing:
         user_doc = {
             "user_id": str(uuid.uuid4()),
+            "id": None,  # populated below
             "name": name,
             "email": email,
             "phone": None,
@@ -384,6 +392,7 @@ def oauth_callback(provider: str, request: Request, response: Response, code: Op
             "updated_at": now,
             "last_login_at": now,
         }
+        user_doc["id"] = user_doc["user_id"]
         saved = repo.create_user(user_doc)
     else:
         existing.update(
@@ -417,6 +426,7 @@ def register_email(request: Request, payload: RegisterEmailRequest, response: Re
     now = datetime.datetime.utcnow().isoformat()
     user_doc = {
         "user_id": str(uuid.uuid4()),
+        "id": None,  # populated below
         "name": payload.name,
         "email": payload.email,
         "phone": payload.phone,
@@ -429,6 +439,7 @@ def register_email(request: Request, payload: RegisterEmailRequest, response: Re
         "updated_at": now,
         "last_login_at": now,
     }
+    user_doc["id"] = user_doc["user_id"]
     saved = repo.create_user(user_doc)
     access_token = create_token({"sub": saved["user_id"], "email": saved["email"]}, datetime.timedelta(minutes=settings.access_token_minutes), "access")
     refresh_token = create_token({"sub": saved["user_id"], "email": saved["email"]}, datetime.timedelta(days=settings.refresh_token_days), "refresh")
