@@ -11,11 +11,21 @@ ROOT_DIR="$(dirname "$INFRA_DIR")"
 
 echo "🚀 Deploying AgenticCloudDisc to $ENVIRONMENT environment..."
 
+# Load .env file for OAuth credentials
+if [ -f "$ROOT_DIR/.env" ]; then
+    echo "📋 Loading OAuth credentials from .env file..."
+    export $(cat "$ROOT_DIR/.env" | grep -E '^(GOOGLE_CLIENT_ID|GOOGLE_CLIENT_SECRET|MICROSOFT_CLIENT_ID|MICROSOFT_CLIENT_SECRET)=' | xargs)
+    echo "✅ OAuth credentials loaded"
+else
+    echo "⚠️  .env file not found. Using placeholder OAuth credentials."
+fi
+
 # Load configuration
 if [ "$ENVIRONMENT" = "dev" ]; then
     RESOURCE_GROUP="rg_ACD"
-    LOCATION="eastus"
+    LOCATION="uksouth"  # Updated to match existing resource group
     REGISTRY_NAME="acracddev"
+    COSMOS_ACCOUNT_NAME="sg-agentic-cosmos-acd"  # Use existing Cosmos DB
 else
     echo "❌ Only 'dev' environment is configured. Please update script for prod deployment."
     exit 1
@@ -108,11 +118,13 @@ echo "  📝 Storing secrets..."
 az keyvault secret set --vault-name "$KV_NAME" --name "acr-password" --value "$ACR_PASSWORD" --output none
 az keyvault secret set --vault-name "$KV_NAME" --name "jwt-secret-key" --value "$JWT_SECRET" --output none
 
-# Placeholder OAuth secrets (replace with real values)
-az keyvault secret set --vault-name "$KV_NAME" --name "google-client-secret" --value "placeholder-google-secret" --output none
-az keyvault secret set --vault-name "$KV_NAME" --name "microsoft-client-secret" --value "placeholder-microsoft-secret" --output none
+# OAuth secrets from .env file
+GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET:-"placeholder-google-secret"}
+MICROSOFT_CLIENT_SECRET=${MICROSOFT_CLIENT_SECRET:-"placeholder-microsoft-secret"}
+az keyvault secret set --vault-name "$KV_NAME" --name "google-client-secret" --value "$GOOGLE_CLIENT_SECRET" --output none
+az keyvault secret set --vault-name "$KV_NAME" --name "microsoft-client-secret" --value "$MICROSOFT_CLIENT_SECRET" --output none
 
-echo "✅ Secrets stored in Key Vault"
+echo "✅ Secrets stored in Key Vault (OAuth credentials from .env)"
 
 # Get current user principal ID for Key Vault access
 PRINCIPAL_ID=$(az ad signed-in-user show --query id -o tsv)
@@ -145,16 +157,16 @@ cat > "$TEMP_PARAMS_FILE" <<EOF
       "value": "$JWT_SECRET"
     },
     "googleClientId": {
-      "value": "placeholder-google-client-id"
+      "value": "${GOOGLE_CLIENT_ID:-placeholder-google-client-id}"
     },
     "googleClientSecret": {
-      "value": "placeholder-google-secret"
+      "value": "${GOOGLE_CLIENT_SECRET:-placeholder-google-secret}"
     },
     "microsoftClientId": {
-      "value": "placeholder-microsoft-client-id"
+      "value": "${MICROSOFT_CLIENT_ID:-placeholder-microsoft-client-id}"
     },
     "microsoftClientSecret": {
-      "value": "placeholder-microsoft-secret"
+      "value": "${MICROSOFT_CLIENT_SECRET:-placeholder-microsoft-secret}"
     },
     "principalId": {
       "value": "$PRINCIPAL_ID"

@@ -1,39 +1,48 @@
-# Cloud Agentic Discovery MVP (Azure) — Architecture Overview
+# Cloud Agentic Discovery (ACD) Architecture Overview
 
 ## Purpose
-This repository delivers a governed, observable agentic platform on Azure that can interpret user intent, discover how to call APIs, and execute those calls through a controlled execution boundary. The system avoids hard-coded workflows and is designed to scale in capability without becoming a security or operations liability.
+Cloud Agentic Discovery delivers governed, authenticated discovery of Azure resources through an agentic execution pattern. Discovery is identity-first: subscriptionId and tenantId are identifiers, never credentials. Authenticated Connections, RBAC validation, and MCP-enforced execution prevent unauthorised access while enabling flexible, tool-driven exploration.
 
-## MVP Statement
-Build a working MVP that:
-- Accepts a user query via a minimal web UI
-- Uses an Orchestrator (LLM) to plan and choose tools
-- Executes tools only through an MCP Server (execution boundary)
-- Enforces deterministic policy and validation outside the LLM
-- Emits end-to-end telemetry with correlation IDs
-- Supports cold-start tool discovery from ingested API documentation
-- Demonstrates bounded self-healing retries for controlled error classes
+## MVP Scope (Delegated OAuth)
+- Accept discovery requests via a minimal web UI.
+- Authenticate users with delegated OAuth and bind tokens to explicit Connections.
+- Plan and execute discovery through the Orchestrator, using only MCP tools for external calls.
+- Persist users, Connections, sessions, policies, tools, and discovery results in Cosmos DB (system of record).
+- Emit correlated telemetry (session_id, trace_id, correlation_id) across services.
 
-## Core Design Principle
-**The LLM proposes actions. The platform decides what is allowed and executes deterministically.**
+## Core Principles
+- **Identity first:** Discovery requires authenticated access; identifiers alone are insufficient.
+- **Deterministic execution:** The LLM proposes; policy + MCP decide and execute.
+- **Single egress path:** All external API calls flow through MCP tools and APIM.
+- **Separation of concerns:** Reasoning (Orchestrator), execution (MCP), storage (Cosmos), telemetry (App Insights/Log Analytics).
+- **Least privilege:** Delegated scopes (MVP) and application identities (enterprise) respect Azure RBAC.
 
 ## High-Level Components
-- Client UI (Web): sends requests, shows answer + trace
-- Orchestrator API: reasoning, planning, tool selection, confidence gating
-- MCP Server: tool registry + policy enforcement + validation + execution
-- APIM: API gateway for outbound calls (auth, throttling, routing)
-- Knowledge Services: Document Intelligence + AI Search for API docs and schemas
-- State/Memory: Cosmos DB for policies, tool registry, sessions, sanitized patterns
-- Observability: Application Insights + Log Analytics
+- Client UI: session entry; collects auth grant for delegated OAuth; drives discovery flows.
+- Orchestrator API: planning, tool selection, confidence gating, session management; no direct external calls.
+- MCP Server: execution boundary, schema/policy validation, redaction, outbound enforcement via APIM.
+- Knowledge Services: AI Search + Document Intelligence for tool/schema discovery.
+- Data/State (Cosmos DB): users, Connections, policies, tools, sessions, discovery results.
+- Observability: Application Insights + Log Analytics with correlated IDs.
+
+## Identity and Access Posture
+- subscriptionId / tenantId are discovery targets only after an authorized Connection exists.
+- MVP: delegated OAuth user tokens; enterprise: service principal or managed identity with RBAC.
+- Azure enforces RBAC during MCP tool execution; MCP carries the token bound to the Connection.
+
+## Execution Boundary
+- MCP is the sole path for external API calls; Orchestrator and UI never call target APIs.
+- APIM fronts outbound calls for auth, throttling, and routing.
+- Tool registry and policy gating prevent unapproved methods/domains.
 
 ## Azure Services (MVP)
 - Azure Container Apps (MCP Server, Orchestrator, optional UI backend)
-- Azure OpenAI (GPT-4o + o3-mini/o1 depending on availability)
-- Azure API Management (outbound gateway to target APIs)
-- Azure AI Search (vector index for documentation)
-- Azure AI Document Intelligence (doc extraction)
+- Azure OpenAI (GPT-4o + o3-mini/o1)
+- Azure API Management
+- Azure AI Search and Azure AI Document Intelligence
 - Azure Cosmos DB (NoSQL)
-- Azure Key Vault (secrets only where needed; prefer Managed Identity)
-- Application Insights + Log Analytics (telemetry)
+- Azure Key Vault (secrets, prefer Managed Identity)
+- Application Insights + Log Analytics
 
 ## Repository Layout (Target)
 - infra/                 Infrastructure as Code (Bicep preferred)
@@ -45,8 +54,8 @@ Build a working MVP that:
 - docs/prompts/          Start/End prompts for session continuity
 
 ## Definition of Done (MVP)
-- UI → Orchestrator → MCP → APIM → Target API works end-to-end
-- Policy enforcement blocks disallowed methods/domains
-- Orchestrator performs bounded retries and self-healing on payload errors
-- Telemetry shows correlated trace across services using session_id and trace_id
-- Cold-start discovery works using indexed documentation with approval gating for new tools
+- UI ↔ Orchestrator ↔ MCP ↔ APIM ↔ Target API flow works with authenticated Connections.
+- Policy enforcement blocks disallowed methods/domains; RBAC is honored by Azure.
+- Orchestrator performs bounded retries and self-healing on payload errors.
+- Telemetry shows correlated trace across services.
+- Cold-start tool discovery works with approval gating for new tools.
