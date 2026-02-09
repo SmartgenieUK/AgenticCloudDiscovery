@@ -1,0 +1,59 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "environment": {
+      "value": "dev"
+    },
+    "location": {
+      "value": "eastus"
+    },
+    "containerRegistryServer": {
+      "value": "acracddev.azurecr.io"
+    },
+    "containerRegistryUsername": {
+      "value": "acracddev"
+    },
+    "containerRegistryPassword": {
+      "reference": {
+        "keyVault": {
+          "id": "/subscriptions/<subscription-id>/resourceGroups/rg_ACD/providers/Microsoft.KeyVault/vaults/kv-acd-dev"
+        },
+        "secretName": "acr-password"
+      }
+    },
+    "jwtSecretKey": {
+      "reference": {
+        "keyVault": {
+          "id": "/subscriptions/<subscription-id>/resourceGroups/rg_ACD/providers/Microsoft.KeyVault/vaults/kv-acd-dev"
+        },
+        "secretName": "jwt-secret-key"
+      }
+    },
+    "googleClientId": {
+      "value": "<your-google-client-id>"
+    },
+    "googleClientSecret": {
+      "reference": {
+        "keyVault": {
+          "id": "/subscriptions/<subscription-id>/resourceGroups/rg_ACD/providers/Microsoft.KeyVault/vaults/kv-acd-dev"
+        },
+        "secretName": "google-client-secret"
+      }
+    },
+    "microsoftClientId": {
+      "value": "<your-microsoft-client-id>"
+    },
+    "microsoftClientSecret": {
+      "reference": {
+        "keyVault": {
+          "id": "/subscriptions/<subscription-id>/resourceGroups/rg_ACD/providers/Microsoft.KeyVault/vaults/kv-acd-dev"
+        },
+        "secretName": "microsoft-client-secret"
+      }
+    },
+    "principalId": {
+      "value": "<service-principal-object-id>"
+    }
+  }
+}

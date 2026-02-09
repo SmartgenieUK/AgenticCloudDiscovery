@@ -1,0 +1,87 @@
+version: '3.8'
+
+services:
+  # MCP Server
+  mcp-server:
+    build:
+      context: ./mcp-server
+      dockerfile: Dockerfile
+    ports:
+      - "9000:9000"
+    environment:
+      - COSMOS_ENDPOINT=${COSMOS_ENDPOINT:-http://localhost:8081}
+      - COSMOS_KEY=${COSMOS_KEY:-C2y6yDjf5/R+ob0N8A7Cgv30VRDJIWEHLM+4QDU5DE2nQ9nDuVTqobD4b8mGGyPMbIZnqyMsEcaGQy67XIw/Jw==}
+      - COSMOS_DATABASE_NAME=agentic-cloud-disc
+      - PORT=9000
+      - LOG_LEVEL=INFO
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:9000/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    networks:
+      - agentic-network
+
+  # Agent Orchestrator
+  orchestrator:
+    build:
+      context: ./agent-orchestrator
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    environment:
+      - COSMOS_ENDPOINT=${COSMOS_ENDPOINT:-http://localhost:8081}
+      - COSMOS_KEY=${COSMOS_KEY:-C2y6yDjf5/R+ob0N8A7Cgv30VRDJIWEHLM+4QDU5DE2nQ9nDuVTqobD4b8mGGyPMbIZnqyMsEcaGQy67XIw/Jw==}
+      - COSMOS_DATABASE_NAME=agentic-cloud-disc
+      - MCP_BASE_URL=http://mcp-server:9000
+      - MCP_STUB_MODE=true
+      - SECRET_KEY=${JWT_SECRET_KEY:-dev-secret-key-change-in-production-minimum-32-characters}
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-placeholder}
+      - GOOGLE_CLIENT_SECRET=${GOOGLE_CLIENT_SECRET:-placeholder}
+      - MICROSOFT_CLIENT_ID=${MICROSOFT_CLIENT_ID:-placeholder}
+      - MICROSOFT_CLIENT_SECRET=${MICROSOFT_CLIENT_SECRET:-placeholder}
+      - UI_BASE_URL=http://localhost:5173
+      - CORS_ALLOW_ORIGINS=http://localhost:5173,http://localhost:3000
+      - PORT=8000
+      - LOG_LEVEL=INFO
+    depends_on:
+      - mcp-server
+    healthcheck:
+      test: ["CMD", "python", "-c", "import requests; requests.get('http://localhost:8000/healthz')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    networks:
+      - agentic-network
+
+  # Client UI (for production builds only, use Vite dev server for development)
+  client-ui:
+    build:
+      context: ./client-ui
+      dockerfile: Dockerfile
+    ports:
+      - "3000:80"
+    environment:
+      - VITE_API_BASE_URL=http://localhost:8000
+    depends_on:
+      - orchestrator
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:80/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    networks:
+      - agentic-network
+
+networks:
+  agentic-network:
+    driver: bridge
+
+# Note: For local development, this docker-compose is primarily for testing containerized builds.
+# For active development:
+# 1. MCP Server: cd mcp-server && uvicorn main:app --reload --port 9000
+# 2. Orchestrator: cd agent-orchestrator && uvicorn main:app --reload --port 8000
+# 3. Client UI: cd client-ui && npm run dev (runs on port 5173)

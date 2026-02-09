@@ -1,0 +1,2 @@
+# Cosmos DB Gremlin API dependencies
+gremlinpython==3.7.1
