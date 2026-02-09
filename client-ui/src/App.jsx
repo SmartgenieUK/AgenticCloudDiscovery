@@ -3,6 +3,7 @@ import { Navigate, Route, Routes } from "react-router-dom";
 import { api } from "./api";
 import CompleteProfile from "./pages/CompleteProfile";
 import Dashboard from "./pages/Dashboard";
+import Discovery from "./pages/Discovery";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
 
@@ -49,6 +50,14 @@ const App = () => (
       element={
         <ProtectedRoute>
           <Dashboard />
+        </ProtectedRoute>
+      }
+    />
+    <Route
+      path="/discovery"
+      element={
+        <ProtectedRoute>
+          <Discovery />
         </ProtectedRoute>
       }
     />

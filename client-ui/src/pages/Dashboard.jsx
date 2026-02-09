@@ -49,6 +49,9 @@ const Dashboard = () => {
         </div>
       )}
       <div className="actions">
+        <button className="primary" onClick={() => navigate("/discovery")}>
+          Go to discovery
+        </button>
         <button className="secondary" onClick={() => navigate("/login")}>
           Return to login
         </button>

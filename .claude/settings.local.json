@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -m pip install:*)",
+      "Bash(python -m pytest:*)",
+      "Bash(curl:*)",
+      "Bash(python -m json.tool:*)",
+      "Bash(az cosmosdb sql database list:*)",
+      "Bash(az cosmosdb sql container list:*)",
+      "Bash(chmod:*)"
+    ]
+  }
+}

@@ -24,4 +24,7 @@ export const api = {
   completeProfile: (payload) => request("/auth/complete-profile", { method: "POST", body: JSON.stringify(payload) }),
   me: () => request("/me"),
   startOAuth: (provider) => request(`/auth/oauth/${provider}/start`, { method: "GET" }),
+  listConnections: () => request("/connections"),
+  createConnection: (payload) => request("/connections", { method: "POST", body: JSON.stringify(payload) }),
+  chat: (payload) => request("/chat", { method: "POST", body: JSON.stringify(payload) }),
 };

@@ -8,12 +8,16 @@ ROOT = Path(__file__).resolve().parents[2] / "agent-orchestrator"
 sys.path.append(str(ROOT))
 
 import main  # type: ignore  # noqa: E402
-from main import InMemoryUserRepository, app  # type: ignore  # noqa: E402
+import auth.routes  # type: ignore  # noqa: E402
+from main import app  # type: ignore  # noqa: E402
+from users import InMemoryUserRepository  # type: ignore  # noqa: E402
+from auth.dependencies import set_repo_provider  # type: ignore  # noqa: E402
 
 
 def fresh_client() -> TestClient:
-    main.repo_provider = InMemoryUserRepository()
-    main.oauth_state_store = {}
+    repo = InMemoryUserRepository()
+    set_repo_provider(repo)
+    auth.routes.oauth_state_store = {}
     main.settings.google_client_id = "test-google-id"
     main.settings.google_client_secret = "test-google-secret"
     main.settings.microsoft_client_id = "test-ms-id"
@@ -121,13 +125,16 @@ def test_oauth_google_flow_creates_user(monkeypatch):
         assert provider == "google"
         return FakeOAuthClient(userinfo)
 
-    monkeypatch.setattr(main, "get_oauth_client", fake_client)
+    import auth.oauth  # type: ignore  # noqa: E402
+    from auth.dependencies import get_repo  # type: ignore  # noqa: E402
+
+    monkeypatch.setattr(auth.oauth, "get_oauth_client", fake_client)
     start_resp = client.get("/auth/oauth/google/start")
     assert start_resp.status_code == 200
     state = start_resp.json()["state"]
     callback_resp = client.get(f"/auth/oauth/google/callback?state={state}&code=fake-code", allow_redirects=False)
     assert callback_resp.status_code in (302, 307)
     assert "complete-profile" in callback_resp.headers["location"]
-    created = main.repo_provider.get_by_email("oauth@example.com")
+    created = get_repo().get_by_email("oauth@example.com")
     assert created is not None
     assert created["auth_provider"] == "google"
