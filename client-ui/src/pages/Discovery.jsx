@@ -1,14 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { api } from "../api";
-import WorkflowStepper from "../components/WorkflowStepper";
+import AgentStepper from "../components/AgentStepper";
 import DevConsole, { ts } from "../components/DevConsole";
-
-const tierOptions = [
-  { value: "inventory", label: "Inventory" },
-  { value: "cost", label: "Cost" },
-  { value: "security", label: "Security" },
-];
 
 const Discovery = () => {
   const navigate = useNavigate();
@@ -17,7 +11,6 @@ const Discovery = () => {
     connection_id: "",
     tenant_id: "",
     subscription_id: "",
-    tier: "inventory",
     message: "Run discovery for the selected scope.",
   });
   const [plan, setPlan] = useState(null);
@@ -29,7 +22,6 @@ const Discovery = () => {
     tenant_id: "",
     subscription_ids: "",
     provider: "service_principal",
-    rbac_tier: "inventory",
     client_id: "",
     client_secret: "",
   });
@@ -81,23 +73,24 @@ const Discovery = () => {
     const conn = connections.find((c) => c.connection_id === form.connection_id);
     log("info", "--- Discovery run started ---");
     log("info", `Connection: ${conn?.tenant_id || form.connection_id} (${conn?.provider || "?"})`);
-    log("info", `Tier: ${form.tier} | Tenant: ${form.tenant_id || "(from connection)"} | Sub: ${form.subscription_id || "(all)"}`);
+    log("info", `Tenant: ${form.tenant_id || "(from connection)"} | Sub: ${form.subscription_id || "(all)"}`);
 
-    // Simulate stage progress in console while request is in flight
-    log("info", "[1/4] Validate: checking connection scope & RBAC...");
-    const stageTimer1 = setTimeout(() => log("info", "[2/4] Discover: executing tool via MCP boundary..."), 800);
-    const stageTimer2 = setTimeout(() => log("info", "[3/4] Analyze: summarizing discovery results..."), 1600);
-    const stageTimer3 = setTimeout(() => log("info", "[4/4] Persist: saving discovery record..."), 2400);
+    // Simulate agent stage progress while request is in flight
+    log("info", "[1/6] Validate: checking connection scope...");
+    const t1 = setTimeout(() => log("info", "[2/6] Inventory: scanning all resources..."), 700);
+    const t2 = setTimeout(() => log("info", "[3/6] Agents: dispatching service category agents..."), 1400);
+    const t3 = setTimeout(() => log("info", "[4/6] Agents: processing category results..."), 2800);
+    const t4 = setTimeout(() => log("info", "[5/6] Aggregate: combining results..."), 4200);
+    const t5 = setTimeout(() => log("info", "[6/6] Persist: saving discovery snapshot..."), 5000);
 
     try {
       const payload = {
         connection_id: form.connection_id,
         tenant_id: form.tenant_id || undefined,
         subscription_id: form.subscription_id || undefined,
-        tier: form.tier,
         message: form.message,
       };
-      log("info", `POST /chat ${JSON.stringify({ tier: payload.tier, connection_id: payload.connection_id.slice(0, 8) + "..." })}`);
+      log("info", `POST /chat ${JSON.stringify({ connection_id: payload.connection_id.slice(0, 8) + "..." })}`);
 
       const data = await api.chat(payload);
       setPlan(data.plan);
@@ -110,26 +103,33 @@ const Discovery = () => {
       log("info", `discovery_id: ${data.discovery?.discovery_id || "?"}`);
       log("info", `status: ${data.discovery?.status || "?"} | stage: ${data.discovery?.stage || "?"}`);
 
-      if (data.discovery?.results?.summary?.counts) {
-        const counts = Object.entries(data.discovery.results.summary.counts)
-          .map(([k, v]) => `${k}=${v}`)
-          .join(", ");
-        log("info", `Counts: ${counts}`);
+      // Log category results
+      if (data.discovery?.results?.categories) {
+        Object.entries(data.discovery.results.categories).forEach(([cat, result]) => {
+          const icon = result.status === "completed" ? "+" : result.status === "skipped" ? "-" : "!";
+          log(
+            result.status === "completed" ? "success" : "warn",
+            `  [${icon}] ${cat}: ${result.status} (${result.resource_count} resources)`,
+          );
+        });
       }
 
       if (data.plan) {
         data.plan.forEach((step) => {
           const detail = step.detail ? ` ${JSON.stringify(step.detail)}` : "";
-          log(step.status === "completed" ? "success" : "warn", `  Stage [${step.name}]: ${step.status}${detail}`);
+          const level = step.status === "completed" ? "success" : step.status === "skipped" ? "warn" : "error";
+          log(level, `  Stage [${step.label || step.name}]: ${step.status}${detail}`);
         });
       }
     } catch (err) {
       setError(err.message);
       log("error", `Discovery failed: ${err.message}`);
     } finally {
-      clearTimeout(stageTimer1);
-      clearTimeout(stageTimer2);
-      clearTimeout(stageTimer3);
+      clearTimeout(t1);
+      clearTimeout(t2);
+      clearTimeout(t3);
+      clearTimeout(t4);
+      clearTimeout(t5);
       setLoading(false);
       log("info", "--- Discovery run ended ---");
     }
@@ -144,12 +144,10 @@ const Discovery = () => {
         tenant_id: newConn.tenant_id,
         subscription_ids: newConn.subscription_ids.split(",").map((s) => s.trim()).filter(Boolean),
         provider: newConn.provider,
-        rbac_tier: newConn.rbac_tier,
       };
       if (payload.subscription_ids.length === 0) {
         throw new Error("Enter at least one subscription id.");
       }
-      // Include SP credentials when using service_principal auth
       if (newConn.provider === "service_principal") {
         if (!newConn.client_id || !newConn.client_secret) {
           throw new Error("Client ID and Client Secret are required for Service Principal.");
@@ -157,7 +155,7 @@ const Discovery = () => {
         payload.client_id = newConn.client_id;
         payload.client_secret = newConn.client_secret;
       }
-      log("info", `Tenant: ${payload.tenant_id} | Subs: ${payload.subscription_ids.join(", ")} | Provider: ${payload.provider} | Tier: ${payload.rbac_tier}`);
+      log("info", `Tenant: ${payload.tenant_id} | Subs: ${payload.subscription_ids.join(", ")} | Provider: ${payload.provider}`);
 
       const created = await api.createConnection(payload);
       const updated = [...connections, created];
@@ -167,7 +165,7 @@ const Discovery = () => {
         connection_id: created.connection_id,
         tenant_id: created.tenant_id || "",
       }));
-      setNewConn({ tenant_id: "", subscription_ids: "", provider: "service_principal", rbac_tier: "inventory", client_id: "", client_secret: "" });
+      setNewConn({ tenant_id: "", subscription_ids: "", provider: "service_principal", client_id: "", client_secret: "" });
       log("success", `Azure connection created: ${created.connection_id}`);
     } catch (err) {
       setError(err.message);
@@ -177,13 +175,16 @@ const Discovery = () => {
     }
   };
 
+  // Extract category results for display
+  const categoryResults = response?.discovery?.results?.categories || null;
+
   return (
     <div className="discovery-shell">
       {/* Header */}
       <div className="discovery-header">
         <div>
           <h1 className="form-title" style={{ marginBottom: "4px" }}>Discovery Console</h1>
-          <p className="muted" style={{ margin: 0 }}>Run discovery via MCP and review the execution plan.</p>
+          <p className="muted" style={{ margin: 0 }}>Run agent-based discovery across Azure service categories.</p>
         </div>
         <button className="secondary" onClick={() => navigate("/dashboard")}>
           Back
@@ -227,20 +228,6 @@ const Discovery = () => {
                   <option value="service_principal">Service Principal</option>
                   <option value="managed_identity">Managed Identity</option>
                   <option value="oauth_delegated" disabled>Delegated OAuth (coming soon)</option>
-                </select>
-              </div>
-              <div>
-                <label htmlFor="conn-tier">RBAC Tier</label>
-                <select
-                  id="conn-tier"
-                  value={newConn.rbac_tier}
-                  onChange={(e) => setNewConn({ ...newConn, rbac_tier: e.target.value })}
-                >
-                  {tierOptions.map((t) => (
-                    <option key={t.value} value={t.value}>
-                      {t.label}
-                    </option>
-                  ))}
                 </select>
               </div>
             </div>
@@ -295,32 +282,6 @@ const Discovery = () => {
                         </option>
                       ))}
                     </select>
-                    {selectedConnection && selectedConnection.rbac_tier && (
-                      <p className="muted" style={{ marginTop: "4px", marginBottom: 0 }}>
-                        RBAC tier: {selectedConnection.rbac_tier}
-                      </p>
-                    )}
-                  </div>
-                  <div>
-                    <label htmlFor="tier">Discovery tier</label>
-                    <select id="tier" value={form.tier} onChange={(e) => setForm({ ...form, tier: e.target.value })}>
-                      {tierOptions.map((t) => (
-                        <option key={t.value} value={t.value}>
-                          {t.label}
-                        </option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-                <div className="grid-2">
-                  <div>
-                    <label htmlFor="tenant_id">Tenant ID</label>
-                    <input
-                      id="tenant_id"
-                      value={form.tenant_id}
-                      onChange={(e) => setForm({ ...form, tenant_id: e.target.value })}
-                      placeholder="tenant-id"
-                    />
                   </div>
                   <div>
                     <label htmlFor="subscription_id">Subscription ID</label>
@@ -328,9 +289,18 @@ const Discovery = () => {
                       id="subscription_id"
                       value={form.subscription_id}
                       onChange={(e) => setForm({ ...form, subscription_id: e.target.value })}
-                      placeholder="sub-123"
+                      placeholder="sub-123 (optional)"
                     />
                   </div>
+                </div>
+                <div>
+                  <label htmlFor="tenant_id">Tenant ID (override)</label>
+                  <input
+                    id="tenant_id"
+                    value={form.tenant_id}
+                    onChange={(e) => setForm({ ...form, tenant_id: e.target.value })}
+                    placeholder="uses connection tenant by default"
+                  />
                 </div>
                 <div>
                   <label htmlFor="message">Message</label>
@@ -352,7 +322,7 @@ const Discovery = () => {
 
         {/* Right column: stepper + results */}
         <div className="discovery-results">
-          <WorkflowStepper
+          <AgentStepper
             running={loading}
             plan={plan}
             error={error}
@@ -363,7 +333,43 @@ const Discovery = () => {
             <div className="error" style={{ marginTop: "12px" }}>{error}</div>
           )}
 
-          {response && !loading && (
+          {/* Category results grid */}
+          {categoryResults && !loading && (
+            <div className="card">
+              <h3 style={{ margin: "0 0 12px" }}>Service Categories</h3>
+              <div className="category-grid">
+                {Object.entries(categoryResults).map(([cat, result]) => (
+                  <div
+                    key={cat}
+                    className={`category-card category-card-${result.status}`}
+                  >
+                    <div className="category-card-header">
+                      <span className="category-card-name">{cat.replace("_", " ")}</span>
+                      <span className={`stepper-badge stepper-badge-${result.status === "completed" ? "done" : result.status === "skipped" ? "skipped" : "error"}`}>
+                        {result.status}
+                      </span>
+                    </div>
+                    <div className="category-card-count">
+                      {result.resource_count} resource{result.resource_count !== 1 ? "s" : ""}
+                    </div>
+                    {result.resources && result.resources.length > 0 && (
+                      <div className="category-card-resources">
+                        {result.resources.slice(0, 3).map((r, i) => (
+                          <div key={i} className="category-resource-item">{r.name || r.id}</div>
+                        ))}
+                        {result.resources.length > 3 && (
+                          <div className="category-resource-more">+{result.resources.length - 3} more</div>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Inventory summary */}
+          {response && !loading && response.discovery?.results?.inventory && (
             <div className="card">
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
                 <h3 style={{ margin: 0 }}>Discovery Result</h3>
@@ -383,21 +389,17 @@ const Discovery = () => {
                   </span>
                 </div>
                 <div className="result-row">
-                  <span className="result-label">Tier</span>
-                  <span>{response.discovery?.tier}</span>
+                  <span className="result-label">Total</span>
+                  <span>{response.discovery.results.inventory.total_resources} resources</span>
                 </div>
                 <div className="result-row">
                   <span className="result-label">Summary</span>
                   <span>{response.final_response}</span>
                 </div>
-                {response.discovery?.results?.summary?.counts && (
+                {response.discovery.results.inventory.providers_found?.length > 0 && (
                   <div className="result-row">
-                    <span className="result-label">Counts</span>
-                    <span>
-                      {Object.entries(response.discovery.results.summary.counts)
-                        .map(([k, v]) => `${k}: ${v}`)
-                        .join(", ")}
-                    </span>
+                    <span className="result-label">Providers</span>
+                    <span>{response.discovery.results.inventory.providers_found.join(", ")}</span>
                   </div>
                 )}
               </div>
@@ -412,7 +414,7 @@ const Discovery = () => {
           {!loading && !plan && !error && (
             <div className="empty-state">
               <div className="empty-icon">&#9776;</div>
-              <p>Create a connection and run a discovery to see workflow progress here.</p>
+              <p>Create a connection and run a discovery to see agent workflow progress here.</p>
             </div>
           )}
         </div>

@@ -40,6 +40,8 @@ from discoveries import (
     TOOL_SCHEMAS,
     validate_connection_scope,
     run_discovery_workflow,
+    SERVICE_CATEGORIES,
+    run_agent_discovery_workflow,
 )
 
 # Import auth module
@@ -168,23 +170,22 @@ def chat(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid connection.")
     validate_connection_scope(connection, payload.tenant_id, payload.subscription_id)
     session_id = payload.session_id or str(uuid.uuid4())
-    outcome = run_discovery_workflow(
+    outcome = run_agent_discovery_workflow(
         request=request,
         connection=connection,
         tenant_id=payload.tenant_id,
         subscription_id=payload.subscription_id,
-        tier=payload.tier,
         session_id=session_id,
         discovery_repo=discovery_repo,
         execute_tool_with_retries_fn=execute_tool_with_retries,
+        categories=payload.categories,
     )
-    response_text = outcome["final_response"] or f"{payload.tier.capitalize()} discovery completed."
+    response_text = outcome["final_response"] or "Discovery completed."
     logger.info(
-        "chat_discovery_complete trace_id=%s correlation_id=%s session_id=%s tier=%s",
+        "chat_discovery_complete trace_id=%s correlation_id=%s session_id=%s",
         outcome["trace_id"],
         outcome["correlation_id"],
         session_id,
-        payload.tier,
     )
     return ChatResponse(
         session_id=session_id,
@@ -203,14 +204,14 @@ def start_discovery(request: Request, payload: DiscoveryRequest, user: Dict = De
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid connection.")
     validate_connection_scope(connection, payload.tenant_id, payload.subscription_id)
     session_id = str(uuid.uuid4())
-    outcome = run_discovery_workflow(
+    outcome = run_agent_discovery_workflow(
         request=request,
         connection=connection,
         tenant_id=payload.tenant_id,
         subscription_id=payload.subscription_id,
-        tier=payload.tier,
         session_id=session_id,
         discovery_repo=discovery_repo,
         execute_tool_with_retries_fn=execute_tool_with_retries,
+        categories=payload.categories,
     )
     return Discovery(**outcome["discovery"])

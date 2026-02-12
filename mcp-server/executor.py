@@ -77,6 +77,64 @@ class ToolExecutor:
         url = f"{base}{endpoint}?api-version={api_version}"
         return url
 
+    # Category-specific stub data with realistic Azure resource types
+    STUB_DATA = {
+        "inventory_discovery": {
+            "resources": [
+                {"type": "Microsoft.Compute/virtualMachines", "name": "vm-web-01", "location": "eastus", "id": "/subscriptions/sub-1/resourceGroups/rg-prod/providers/Microsoft.Compute/virtualMachines/vm-web-01"},
+                {"type": "Microsoft.Compute/virtualMachines", "name": "vm-api-01", "location": "eastus", "id": "/subscriptions/sub-1/resourceGroups/rg-prod/providers/Microsoft.Compute/virtualMachines/vm-api-01"},
+                {"type": "Microsoft.Storage/storageAccounts", "name": "saproddata01", "location": "eastus", "id": "/subscriptions/sub-1/resourceGroups/rg-prod/providers/Microsoft.Storage/storageAccounts/saproddata01"},
+                {"type": "Microsoft.Storage/storageAccounts", "name": "saproddlogs", "location": "eastus", "id": "/subscriptions/sub-1/resourceGroups/rg-prod/providers/Microsoft.Storage/storageAccounts/saproddlogs"},
+                {"type": "Microsoft.Network/virtualNetworks", "name": "vnet-prod", "location": "eastus", "id": "/subscriptions/sub-1/resourceGroups/rg-prod/providers/Microsoft.Network/virtualNetworks/vnet-prod"},
+                {"type": "Microsoft.Network/networkSecurityGroups", "name": "nsg-web", "location": "eastus", "id": "/subscriptions/sub-1/resourceGroups/rg-prod/providers/Microsoft.Network/networkSecurityGroups/nsg-web"},
+                {"type": "Microsoft.Sql/servers", "name": "sql-prod-01", "location": "eastus", "id": "/subscriptions/sub-1/resourceGroups/rg-prod/providers/Microsoft.Sql/servers/sql-prod-01"},
+                {"type": "Microsoft.Web/sites", "name": "app-frontend", "location": "eastus", "id": "/subscriptions/sub-1/resourceGroups/rg-prod/providers/Microsoft.Web/sites/app-frontend"},
+                {"type": "Microsoft.Web/sites", "name": "func-processor", "location": "eastus", "id": "/subscriptions/sub-1/resourceGroups/rg-prod/providers/Microsoft.Web/sites/func-processor"},
+                {"type": "Microsoft.KeyVault/vaults", "name": "kv-prod-01", "location": "eastus", "id": "/subscriptions/sub-1/resourceGroups/rg-prod/providers/Microsoft.KeyVault/vaults/kv-prod-01"},
+            ],
+            "summary": "Found 10 resources across 6 types",
+            "counts": {"resources": 10, "types": 6},
+        },
+        "compute_discovery": {
+            "resources": [
+                {"type": "Microsoft.Compute/virtualMachines", "name": "vm-web-01", "location": "eastus", "properties": {"vmSize": "Standard_B2s", "osProfile": {"computerName": "vm-web-01"}, "storageProfile": {"osDisk": {"osType": "Linux", "diskSizeGB": 30}}}},
+                {"type": "Microsoft.Compute/virtualMachines", "name": "vm-api-01", "location": "eastus", "properties": {"vmSize": "Standard_D2s_v3", "osProfile": {"computerName": "vm-api-01"}, "storageProfile": {"osDisk": {"osType": "Linux", "diskSizeGB": 64}}}},
+            ],
+            "summary": "Found 2 virtual machines",
+            "counts": {"virtual_machines": 2},
+        },
+        "storage_discovery": {
+            "resources": [
+                {"type": "Microsoft.Storage/storageAccounts", "name": "saproddata01", "location": "eastus", "sku": {"name": "Standard_LRS", "tier": "Standard"}, "kind": "StorageV2", "properties": {"accessTier": "Hot"}},
+                {"type": "Microsoft.Storage/storageAccounts", "name": "saproddlogs", "location": "eastus", "sku": {"name": "Standard_GRS", "tier": "Standard"}, "kind": "BlobStorage", "properties": {"accessTier": "Cool"}},
+            ],
+            "summary": "Found 2 storage accounts",
+            "counts": {"storage_accounts": 2},
+        },
+        "database_discovery": {
+            "resources": [
+                {"type": "Microsoft.Sql/servers", "name": "sql-prod-01", "location": "eastus", "properties": {"administratorLogin": "sqladmin", "version": "12.0", "state": "Ready"}},
+            ],
+            "summary": "Found 1 SQL servers",
+            "counts": {"sql_servers": 1},
+        },
+        "networking_discovery": {
+            "resources": [
+                {"type": "Microsoft.Network/virtualNetworks", "name": "vnet-prod", "location": "eastus", "properties": {"addressSpace": {"addressPrefixes": ["10.0.0.0/16"]}, "subnets": [{"name": "default", "properties": {"addressPrefix": "10.0.0.0/24"}}]}},
+            ],
+            "summary": "Found 1 virtual networks",
+            "counts": {"virtual_networks": 1},
+        },
+        "appservice_discovery": {
+            "resources": [
+                {"type": "Microsoft.Web/sites", "name": "app-frontend", "location": "eastus", "kind": "app", "properties": {"state": "Running", "defaultHostName": "app-frontend.azurewebsites.net"}},
+                {"type": "Microsoft.Web/sites", "name": "func-processor", "location": "eastus", "kind": "functionapp", "properties": {"state": "Running", "defaultHostName": "func-processor.azurewebsites.net"}},
+            ],
+            "summary": "Found 2 web/function apps",
+            "counts": {"web_apps": 2},
+        },
+    }
+
     def execute_stub(self, request: ExecuteToolRequest, tool: Dict) -> ExecuteToolResponse:
         """Execute tool in stub mode (returns mock response)."""
         logger.info(f"Executing tool {request.tool_id} in STUB mode")
@@ -85,18 +143,17 @@ class ToolExecutor:
         time.sleep(0.1)  # Simulate network latency
         latency_ms = int((time.time() - start_time) * 1000)
 
-        # Return mock Azure response
+        stub = self.STUB_DATA.get(request.tool_id, {})
         mock_result = {
-            "summary": f"{request.tool_id} executed successfully in stub mode",
+            "summary": stub.get("summary", f"{request.tool_id} executed in stub mode"),
             "timestamp": datetime.utcnow().isoformat() + "Z",
             "scope": {
                 "tenant_id": request.args.get("tenant_id"),
-                "subscription_id": request.args.get("subscription_id")
+                "subscription_id": request.args.get("subscription_id"),
             },
-            "counts": {
-                "resources": 42
-            },
-            "stub": True
+            "counts": stub.get("counts", {"resources": 0}),
+            "resources": stub.get("resources", []),
+            "stub": True,
         }
 
         return ExecuteToolResponse(
@@ -304,6 +361,46 @@ class ToolExecutor:
                 "counts": {"assessments": len(assessments)},
                 "timestamp": datetime.utcnow().isoformat() + "Z",
                 "assessments": assessments,
+            }
+        elif tool_id == "compute_discovery":
+            vms = raw.get("value", [])
+            return {
+                "summary": f"Found {len(vms)} virtual machines",
+                "counts": {"virtual_machines": len(vms)},
+                "timestamp": datetime.utcnow().isoformat() + "Z",
+                "resources": vms,
+            }
+        elif tool_id == "storage_discovery":
+            accounts = raw.get("value", [])
+            return {
+                "summary": f"Found {len(accounts)} storage accounts",
+                "counts": {"storage_accounts": len(accounts)},
+                "timestamp": datetime.utcnow().isoformat() + "Z",
+                "resources": accounts,
+            }
+        elif tool_id == "database_discovery":
+            servers = raw.get("value", [])
+            return {
+                "summary": f"Found {len(servers)} SQL servers",
+                "counts": {"sql_servers": len(servers)},
+                "timestamp": datetime.utcnow().isoformat() + "Z",
+                "resources": servers,
+            }
+        elif tool_id == "networking_discovery":
+            vnets = raw.get("value", [])
+            return {
+                "summary": f"Found {len(vnets)} virtual networks",
+                "counts": {"virtual_networks": len(vnets)},
+                "timestamp": datetime.utcnow().isoformat() + "Z",
+                "resources": vnets,
+            }
+        elif tool_id == "appservice_discovery":
+            apps = raw.get("value", [])
+            return {
+                "summary": f"Found {len(apps)} web/function apps",
+                "counts": {"web_apps": len(apps)},
+                "timestamp": datetime.utcnow().isoformat() + "Z",
+                "resources": apps,
             }
         # Fallback: return raw with defaults
         return {

@@ -15,6 +15,12 @@ from .workflow import (
     tool_for_tier,
     validate_connection_scope,
 )
+from .agent_workflow import (
+    SERVICE_CATEGORIES,
+    match_providers_to_categories,
+    build_agent_plan,
+    run_agent_discovery_workflow,
+)
 
 __all__ = [
     "DiscoveryRepository",
@@ -29,4 +35,8 @@ __all__ = [
     "summarize_tool_result",
     "tool_for_tier",
     "validate_connection_scope",
+    "SERVICE_CATEGORIES",
+    "match_providers_to_categories",
+    "build_agent_plan",
+    "run_agent_discovery_workflow",
 ]

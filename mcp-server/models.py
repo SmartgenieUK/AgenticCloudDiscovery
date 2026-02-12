@@ -52,6 +52,8 @@ class ToolSchema(BaseModel):
     status: str = Field(..., description="approved, pending, or disabled")
     provenance: Optional[str] = Field(None, description="manual or generated")
     source_docs: Optional[List[str]] = Field(None, description="Source documentation references")
+    category: Optional[str] = Field(None, description="Service category: inventory, compute, storage, databases, networking, app_services, addon")
+    provider_namespace: Optional[str] = Field(None, description="Azure provider namespace, e.g. Microsoft.Compute")
 
 
 class ToolListResponse(BaseModel):

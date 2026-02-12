@@ -543,3 +543,133 @@ button {
 .dev-console-body::-webkit-scrollbar-thumb:hover {
   background: #475569;
 }
+
+/* ============================================================
+   Agent Stepper — service category group
+   ============================================================ */
+
+.stepper-agent-group-label {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: #94a3b8;
+  padding: 6px 0 2px 40px;
+}
+
+.stepper-step-agent {
+  margin-left: 12px;
+  border-left: 2px solid #e2e8f0;
+  padding-left: 0;
+}
+
+.stepper-step-agent-first {
+  border-top-left-radius: 6px;
+  padding-top: 2px;
+}
+
+.stepper-step-agent-last {
+  border-bottom-left-radius: 6px;
+  padding-bottom: 2px;
+}
+
+.stepper-icon.step-skipped {
+  background: #f1f5f9;
+  border-color: #cbd5e1;
+  color: #94a3b8;
+  font-size: 14px;
+}
+
+.stepper-skip-tag {
+  display: inline-block;
+  margin-left: 6px;
+  font-size: 10px;
+  font-weight: 400;
+  color: #94a3b8;
+  background: #f1f5f9;
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+
+.stepper-badge-skipped {
+  background: #f1f5f9;
+  color: #94a3b8;
+}
+
+/* ============================================================
+   Category Results Grid
+   ============================================================ */
+
+.category-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+  gap: 10px;
+}
+
+.category-card {
+  border: 1px solid #e2e8f0;
+  border-radius: 10px;
+  padding: 12px;
+  background: #f8fafc;
+  transition: border-color 0.2s ease;
+}
+
+.category-card-completed {
+  border-color: #86efac;
+  background: #f0fdf4;
+}
+
+.category-card-skipped {
+  border-color: #e2e8f0;
+  background: #fafafa;
+  opacity: 0.7;
+}
+
+.category-card-failed {
+  border-color: #fca5a5;
+  background: #fef2f2;
+}
+
+.category-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.category-card-name {
+  font-weight: 600;
+  font-size: 13px;
+  text-transform: capitalize;
+  color: #0f172a;
+}
+
+.category-card-count {
+  font-size: 20px;
+  font-weight: 700;
+  color: #1e293b;
+  margin-bottom: 6px;
+}
+
+.category-card-skipped .category-card-count {
+  color: #94a3b8;
+}
+
+.category-card-resources {
+  border-top: 1px solid #e2e8f0;
+  padding-top: 6px;
+  margin-top: 4px;
+}
+
+.category-resource-item {
+  font-size: 11px;
+  color: #475569;
+  padding: 1px 0;
+  font-family: "Cascadia Code", "Fira Code", monospace;
+}
+
+.category-resource-more {
+  font-size: 11px;
+  color: #94a3b8;
+  padding-top: 2px;
+}

@@ -118,7 +118,7 @@ class DiscoveryRequest(BaseModel):
     connection_id: str
     tenant_id: Optional[str] = None
     subscription_id: Optional[str] = None
-    tier: str = Field(..., regex="^(inventory|cost|security)$")
+    categories: Optional[List[str]] = Field(None, description="Optional filter for service categories to scan")
 
     @validator("tenant_id", always=True)
     def at_least_one_scope(cls, v, values):
@@ -133,9 +133,9 @@ class Discovery(BaseModel):
     connection_id: str
     tenant_id: Optional[str]
     subscription_id: Optional[str]
-    tier: str
     stage: str
     status: str
+    snapshot_timestamp: Optional[str] = None
     created_at: str
     updated_at: str
     results: Optional[Dict] = None
@@ -147,8 +147,9 @@ class Discovery(BaseModel):
 class PlanStep(BaseModel):
     """Model for a single step in execution plan."""
     name: str
-    status: str
+    status: str  # pending, in_progress, completed, skipped, failed
     detail: Optional[Dict] = None
+    label: Optional[str] = None
 
 
 class ChatRequest(BaseModel):
@@ -157,7 +158,7 @@ class ChatRequest(BaseModel):
     connection_id: str
     tenant_id: Optional[str] = None
     subscription_id: Optional[str] = None
-    tier: str = Field(..., regex="^(inventory|cost|security)$")
+    categories: Optional[List[str]] = Field(None, description="Optional filter for service categories to scan")
     session_id: Optional[str] = None
 
     @validator("tenant_id", always=True)

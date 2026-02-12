@@ -62,8 +62,8 @@ class Settings:
         self.mcp_timeout_seconds = float(os.getenv("MCP_TIMEOUT_SECONDS", "10"))
 
         # Orchestrator execution limits
-        self.max_plan_steps = int(os.getenv("ORCH_MAX_PLAN_STEPS", "6"))
-        self.max_tool_calls = int(os.getenv("ORCH_MAX_TOOL_CALLS", "4"))
+        self.max_plan_steps = int(os.getenv("ORCH_MAX_PLAN_STEPS", "10"))
+        self.max_tool_calls = int(os.getenv("ORCH_MAX_TOOL_CALLS", "8"))
         self.max_total_retries = int(os.getenv("ORCH_MAX_TOTAL_RETRIES", "2"))
 
 
