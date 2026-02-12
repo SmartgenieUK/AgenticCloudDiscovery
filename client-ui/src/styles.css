@@ -12,8 +12,9 @@ body {
   margin: 0;
   min-height: 100vh;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: center;
+  padding-top: 40px;
 }
 
 .auth-shell {
@@ -181,4 +182,364 @@ button {
   border-radius: 10px;
   overflow: auto;
   font-size: 12px;
+}
+
+/* ============================================================
+   Discovery Console Layout
+   ============================================================ */
+
+.discovery-shell {
+  width: 100%;
+  max-width: 960px;
+  margin: 24px auto;
+  padding: 0 16px;
+}
+
+.discovery-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 16px 20px;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.06);
+}
+
+.discovery-layout {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+@media (max-width: 768px) {
+  .discovery-layout {
+    grid-template-columns: 1fr;
+  }
+}
+
+.discovery-controls .card,
+.discovery-results .card {
+  background: #fff;
+}
+
+/* ============================================================
+   Workflow Stepper
+   ============================================================ */
+
+.stepper-card {
+  background: #fff;
+  border: 1px solid #e2e8f0;
+  border-radius: 12px;
+  padding: 16px;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.06);
+}
+
+.stepper-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.stepper-badge {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.stepper-badge-running {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.stepper-badge-done {
+  background: #dcfce7;
+  color: #166534;
+}
+
+.stepper-badge-error {
+  background: #fef2f2;
+  color: #b91c1c;
+}
+
+.stepper-timeline {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+.stepper-step {
+  display: flex;
+  gap: 12px;
+  min-height: 56px;
+}
+
+.stepper-connector-wrap {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 28px;
+  flex-shrink: 0;
+}
+
+.stepper-icon {
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 700;
+  flex-shrink: 0;
+  border: 2px solid #e2e8f0;
+  background: #f8fafc;
+  color: #94a3b8;
+  transition: all 0.3s ease;
+}
+
+.stepper-icon.step-completed {
+  background: #dcfce7;
+  border-color: #4ade80;
+  color: #166534;
+}
+
+.stepper-icon.step-running {
+  background: #dbeafe;
+  border-color: #60a5fa;
+  color: #1d4ed8;
+  animation: pulse-ring 1.2s ease-in-out infinite;
+}
+
+.stepper-icon.step-failed {
+  background: #fef2f2;
+  border-color: #f87171;
+  color: #b91c1c;
+}
+
+@keyframes pulse-ring {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(96, 165, 250, 0.4); }
+  50% { box-shadow: 0 0 0 6px rgba(96, 165, 250, 0); }
+}
+
+.stepper-line {
+  width: 2px;
+  flex-grow: 1;
+  min-height: 16px;
+  background: #e2e8f0;
+  transition: background 0.3s ease;
+}
+
+.stepper-line-done {
+  background: #4ade80;
+}
+
+.stepper-content {
+  padding-bottom: 12px;
+}
+
+.stepper-label {
+  font-weight: 600;
+  font-size: 14px;
+  color: #0f172a;
+}
+
+.stepper-desc {
+  font-size: 12px;
+  color: #64748b;
+  margin-top: 2px;
+}
+
+.stepper-error-detail {
+  font-size: 12px;
+  color: #b91c1c;
+  background: #fef2f2;
+  border: 1px solid #fecdd3;
+  border-radius: 6px;
+  padding: 6px 8px;
+  margin-top: 6px;
+}
+
+.stepper-detail {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.stepper-detail span {
+  font-size: 11px;
+  background: #f1f5f9;
+  padding: 2px 6px;
+  border-radius: 4px;
+  color: #475569;
+}
+
+.stepper-counts {
+  font-weight: 600;
+}
+
+.stepper-tool {
+  font-family: monospace;
+}
+
+.stepper-trace {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid #e2e8f0;
+}
+
+.stepper-trace span {
+  font-size: 11px;
+  color: #64748b;
+  font-family: monospace;
+}
+
+/* ============================================================
+   Result Summary
+   ============================================================ */
+
+.result-summary {
+  margin-top: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.result-row {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 13px;
+}
+
+.result-label {
+  font-weight: 600;
+  color: #475569;
+  min-width: 60px;
+  flex-shrink: 0;
+}
+
+/* ============================================================
+   Empty State
+   ============================================================ */
+
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 48px 24px;
+  background: #fff;
+  border: 1px dashed #cbd5e1;
+  border-radius: 12px;
+  color: #94a3b8;
+}
+
+.empty-icon {
+  font-size: 32px;
+  margin-bottom: 8px;
+  opacity: 0.5;
+}
+
+.empty-state p {
+  font-size: 14px;
+  margin: 0;
+}
+
+/* ============================================================
+   Dev Console (Terminal-style log)
+   ============================================================ */
+
+.dev-console {
+  margin-top: 16px;
+  border: 1px solid #1e293b;
+  border-radius: 12px;
+  overflow: hidden;
+  background: #0f172a;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.2);
+}
+
+.dev-console-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 14px;
+  background: #1e293b;
+  border-bottom: 1px solid #334155;
+}
+
+.dev-console-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #94a3b8;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.dev-console-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.dev-console-count {
+  font-size: 11px;
+  color: #64748b;
+}
+
+.dev-console-clear {
+  background: transparent;
+  color: #64748b;
+  font-size: 11px;
+  padding: 2px 8px;
+  border: 1px solid #334155;
+  border-radius: 4px;
+  cursor: pointer;
+  font-weight: 400;
+}
+
+.dev-console-clear:hover {
+  color: #94a3b8;
+  border-color: #475569;
+}
+
+.dev-console-body {
+  padding: 10px 14px;
+  max-height: 220px;
+  overflow-y: auto;
+  font-family: "Cascadia Code", "Fira Code", "Consolas", monospace;
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+.dev-console-line {
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+/* Scrollbar for console */
+.dev-console-body::-webkit-scrollbar {
+  width: 6px;
+}
+
+.dev-console-body::-webkit-scrollbar-track {
+  background: #0f172a;
+}
+
+.dev-console-body::-webkit-scrollbar-thumb {
+  background: #334155;
+  border-radius: 3px;
+}
+
+.dev-console-body::-webkit-scrollbar-thumb:hover {
+  background: #475569;
 }

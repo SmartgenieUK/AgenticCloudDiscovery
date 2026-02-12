@@ -1,4 +1,5 @@
 """FastAPI dependencies for authentication."""
+import os
 from typing import Dict, Optional
 
 from fastapi import Depends, HTTPException, Request, status
@@ -24,11 +25,36 @@ def get_repo() -> UserRepository:
     return _repo_provider
 
 
+_DEV_USER = {
+    "user_id": "dev-user-00000000",
+    "id": "dev-user-00000000",
+    "name": "Dev User",
+    "email": "dev@localhost",
+    "phone": "0000000000",
+    "designation": "Developer",
+    "company_address": None,
+    "auth_provider": "email",
+    "provider_subject_id": None,
+    "password_hash": None,
+    "created_at": "2025-01-01T00:00:00",
+    "updated_at": "2025-01-01T00:00:00",
+    "last_login_at": "2025-01-01T00:00:00",
+}
+
+# DEV MODE: Set to True to bypass authentication entirely
+DEV_SKIP_AUTH = os.getenv("DEV_SKIP_AUTH", "true").lower() == "true"
+
+
 async def get_current_user(
     request: Request, repo: UserRepository = Depends(get_repo)
 ) -> Dict:
     """Extract and validate the current user from session cookie."""
     token = request.cookies.get("access_token")
+
+    # DEV MODE: return a stub user when no token is present
+    if not token and DEV_SKIP_AUTH:
+        return _DEV_USER
+
     if not token:
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated.")
     try:

@@ -13,6 +13,7 @@ class ExecuteToolRequest(BaseModel):
     correlation_id: Optional[str] = Field(None, description="End-to-end correlation ID")
     agent_step: int = Field(1, description="Step number in execution plan")
     attempt: int = Field(1, description="Retry attempt number")
+    access_token: Optional[str] = Field(None, description="Pre-acquired bearer token (passed from orchestrator)")
 
 
 class ExecutionMetadata(BaseModel):

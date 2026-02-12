@@ -2,7 +2,7 @@
 import datetime
 import logging
 import time
-from typing import Dict
+from typing import Dict, Optional
 
 import httpx
 from fastapi import HTTPException, status
@@ -35,9 +35,12 @@ def call_mcp_execute(
     session_id: str,
     agent_step: int,
     attempt: int,
+    access_token: Optional[str] = None,
 ) -> Dict:
     """Execute a single tool call via MCP server with correlation headers."""
-    if settings.mcp_stub_mode:
+    # Use stub mode unless we have a real access token
+    use_stub = settings.mcp_stub_mode and not access_token
+    if use_stub:
         return stub_mcp_result(tool_id, args)
     if not settings.mcp_base_url:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="MCP base URL not configured.")
@@ -47,10 +50,14 @@ def call_mcp_execute(
         "trace_id": trace_id,
         "tool_id": tool_id,
         "args": args,
+        "connection_id": args.get("connection_id", ""),
         "agent_step": agent_step,
         "attempt": attempt,
         "correlation_id": correlation_id,
     }
+    # Pass access token to MCP server for token injection
+    if access_token:
+        payload["access_token"] = access_token
     try:
         with httpx.Client(timeout=settings.mcp_timeout_seconds) as client:
             resp = client.post(
@@ -92,12 +99,16 @@ def execute_tool_with_retries(
     correlation_id: str,
     session_id: str,
     max_retries: int,
+    access_token: Optional[str] = None,
 ) -> Dict:
     """Execute tool with exponential backoff retry logic for transient errors."""
     attempt = 1
     while attempt <= max_retries + 1:
         try:
-            return call_mcp_execute(tool_id, args, trace_id, correlation_id, session_id, agent_step=attempt, attempt=attempt)
+            return call_mcp_execute(
+                tool_id, args, trace_id, correlation_id, session_id,
+                agent_step=attempt, attempt=attempt, access_token=access_token,
+            )
         except HTTPException as exc:
             if exc.status_code in {401, 403, 404}:
                 raise

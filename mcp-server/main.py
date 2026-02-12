@@ -181,7 +181,15 @@ async def execute_tool(request: ExecuteToolRequest, http_request: Request) -> Ex
 
         # Step 4: Load connection for token injection
         connection = connection_repo.get_by_id(request.connection_id)
-        if not connection:
+
+        # If connection not found but token was passed from orchestrator, build a pseudo-connection
+        if not connection and request.access_token:
+            logger.info(f"Connection {request.connection_id} not in local store, using token from request")
+            connection = {
+                "connection_id": request.connection_id,
+                "access_token": request.access_token,
+            }
+        elif not connection:
             logger.warning(f"Connection {request.connection_id} not found")
             return ExecuteToolResponse(
                 status="failure",
@@ -201,9 +209,14 @@ async def execute_tool(request: ExecuteToolRequest, http_request: Request) -> Ex
                 )
             )
 
-        # Step 5: Execute tool
-        logger.info(f"Policy enforcement passed, executing tool {request.tool_id}")
-        response = executor.execute(request, tool, connection)
+        # If token was passed from orchestrator, ensure connection has it
+        if request.access_token and not connection.get("access_token"):
+            connection["access_token"] = request.access_token
+
+        # Step 5: Execute tool (override stub mode if we have a real token)
+        has_real_token = bool(connection.get("access_token"))
+        logger.info(f"Policy enforcement passed, executing tool {request.tool_id} (real_token={has_real_token})")
+        response = executor.execute(request, tool, connection, force_real=has_real_token)
 
         # Log execution result (NEVER log token or sensitive data)
         logger.info(

@@ -14,6 +14,7 @@ from models import (
     CompleteProfileRequest,
     LoginRequest,
     RegisterEmailRequest,
+    ResetPasswordRequest,
     UserProfile,
     sanitize_user,
 )
@@ -246,6 +247,28 @@ def login_email(request: Request, payload: LoginRequest, response: Response) -> 
 
     logger.info("user_logged_in correlation_id=%s email=%s", request.state.correlation_id, payload.email)
     return sanitize_user(user)
+
+
+@router.post("/reset-password")
+def reset_password(request: Request, payload: ResetPasswordRequest) -> Dict[str, str]:
+    """Reset password for an email-registered user (dev mode: no email verification)."""
+    client_id = request.client.host if request.client else "unknown"
+    enforce_rate_limit(f"reset:{client_id}")
+
+    repo = get_repo()
+    user = repo.get_by_email(payload.email)
+    if not user or user.get("auth_provider") != "email":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="No email-registered account found for this address.",
+        )
+
+    user["password_hash"] = pwd_context.hash(payload.new_password)
+    user["updated_at"] = datetime.datetime.utcnow().isoformat()
+    repo.update_user(user)
+
+    logger.info("password_reset correlation_id=%s email=%s", request.state.correlation_id, payload.email)
+    return {"status": "ok", "message": "Password has been reset. You can now log in."}
 
 
 @router.post("/complete-profile", response_model=UserProfile)

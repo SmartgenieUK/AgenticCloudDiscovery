@@ -32,36 +32,53 @@ const ProtectedRoute = ({ children }) => {
   return children;
 };
 
+// DEV MODE: Auth bypass — go straight to Discovery
+const DEV_SKIP_AUTH = true;
+
 const App = () => (
   <Routes>
-    <Route path="/" element={<Navigate to="/login" replace />} />
-    <Route path="/login" element={<Login />} />
-    <Route path="/register" element={<Register />} />
-    <Route
-      path="/complete-profile"
-      element={
-        <ProtectedRoute>
-          <CompleteProfile />
-        </ProtectedRoute>
-      }
-    />
-    <Route
-      path="/dashboard"
-      element={
-        <ProtectedRoute>
-          <Dashboard />
-        </ProtectedRoute>
-      }
-    />
-    <Route
-      path="/discovery"
-      element={
-        <ProtectedRoute>
-          <Discovery />
-        </ProtectedRoute>
-      }
-    />
-    <Route path="*" element={<Navigate to="/login" replace />} />
+    {DEV_SKIP_AUTH ? (
+      <>
+        <Route path="/" element={<Navigate to="/discovery" replace />} />
+        <Route path="/discovery" element={<Discovery />} />
+        <Route path="/dashboard" element={<Dashboard />} />
+        <Route path="/login" element={<Login />} />
+        <Route path="/register" element={<Register />} />
+        <Route path="/complete-profile" element={<CompleteProfile />} />
+        <Route path="*" element={<Navigate to="/discovery" replace />} />
+      </>
+    ) : (
+      <>
+        <Route path="/" element={<Navigate to="/login" replace />} />
+        <Route path="/login" element={<Login />} />
+        <Route path="/register" element={<Register />} />
+        <Route
+          path="/complete-profile"
+          element={
+            <ProtectedRoute>
+              <CompleteProfile />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/dashboard"
+          element={
+            <ProtectedRoute>
+              <Dashboard />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/discovery"
+          element={
+            <ProtectedRoute>
+              <Discovery />
+            </ProtectedRoute>
+          }
+        />
+        <Route path="*" element={<Navigate to="/login" replace />} />
+      </>
+    )}
   </Routes>
 );
 

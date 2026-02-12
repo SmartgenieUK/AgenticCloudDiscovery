@@ -240,7 +240,59 @@ def get_policy_repository() -> PolicyRepository:
     return InMemoryPolicyRepository(settings)
 
 
+# Default tool definitions for ARM API discovery
+DEFAULT_TOOLS = [
+    {
+        "tool_id": "inventory_discovery",
+        "name": "Inventory Discovery",
+        "description": "Read-only inventory of Azure resources for a given subscription.",
+        "args_schema": {"subscription_id": {"type": "string", "required": True}},
+        "endpoint": "/subscriptions/{subscription_id}/resources",
+        "api_version": "2021-04-01",
+        "allowed_methods": ["GET"],
+        "allowed_domains": ["management.azure.com"],
+        "status": "approved",
+        "provenance": "built-in",
+    },
+    {
+        "tool_id": "cost_discovery",
+        "name": "Cost Discovery",
+        "description": "Retrieve Azure cost/usage data for an authorized scope.",
+        "args_schema": {"subscription_id": {"type": "string", "required": True}},
+        "endpoint": "/subscriptions/{subscription_id}/providers/Microsoft.CostManagement/query",
+        "api_version": "2023-03-01",
+        "allowed_methods": ["POST"],
+        "allowed_domains": ["management.azure.com"],
+        "status": "approved",
+        "provenance": "built-in",
+    },
+    {
+        "tool_id": "security_discovery",
+        "name": "Security Discovery",
+        "description": "Fetch security posture assessments for an authorized scope.",
+        "args_schema": {"subscription_id": {"type": "string", "required": True}},
+        "endpoint": "/subscriptions/{subscription_id}/providers/Microsoft.Security/assessments",
+        "api_version": "2021-06-01",
+        "allowed_methods": ["GET"],
+        "allowed_domains": ["management.azure.com"],
+        "status": "approved",
+        "provenance": "built-in",
+    },
+]
+
+
+def seed_default_tools(repo: ToolRepository) -> None:
+    """Seed the tool repository with default ARM discovery tools."""
+    if isinstance(repo, InMemoryToolRepository):
+        for tool in DEFAULT_TOOLS:
+            repo.tools[tool["tool_id"]] = tool
+        logger.info(f"Seeded {len(DEFAULT_TOOLS)} default tools into in-memory repo")
+
+
 # Module-level singletons
 connection_repo: ConnectionRepository = get_connection_repository()
 tool_repo: ToolRepository = get_tool_repository()
 policy_repo: PolicyRepository = get_policy_repository()
+
+# Seed default tools for in-memory dev mode
+seed_default_tools(tool_repo)

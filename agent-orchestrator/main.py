@@ -49,6 +49,9 @@ from auth.dependencies import set_repo_provider
 # Import mcp client
 from mcp import execute_tool_with_retries
 
+# Import Azure auth
+from azure_auth import acquire_sp_token
+
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("agent-orchestrator.main")
 
@@ -114,6 +117,15 @@ def get_me(user: Dict = Depends(get_current_user)) -> UserProfile:
 @app.post("/connections", response_model=Connection)
 def create_connection(payload: CreateConnectionRequest, user: Dict = Depends(get_current_user)) -> Connection:
     now = datetime.datetime.utcnow().isoformat()
+    access_token = payload.access_token
+    token_expiry = payload.expires_at
+
+    # Service Principal: acquire Azure AD token using client credentials
+    if payload.provider == "service_principal" and payload.client_id and payload.client_secret:
+        token_data = acquire_sp_token(payload.tenant_id, payload.client_id, payload.client_secret)
+        access_token = token_data["access_token"]
+        token_expiry = token_data["expires_on"]
+
     connection_doc = {
         "connection_id": str(uuid.uuid4()),
         "user_id": user["user_id"],
@@ -121,8 +133,10 @@ def create_connection(payload: CreateConnectionRequest, user: Dict = Depends(get
         "subscription_ids": payload.subscription_ids,
         "provider": payload.provider,
         "status": "active",
-        "expires_at": payload.expires_at,
-        "access_token": payload.access_token,  # stored server-side, never returned
+        "expires_at": token_expiry,
+        "access_token": access_token,  # stored server-side, never returned
+        "client_id": payload.client_id,  # stored for token refresh
+        "client_secret": payload.client_secret,  # stored for token refresh
         "rbac_tier": payload.rbac_tier or "inventory",
         "created_at": now,
         "updated_at": now,

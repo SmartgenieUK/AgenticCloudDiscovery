@@ -149,6 +149,9 @@ def run_discovery_workflow(
     saved["updated_at"] = datetime.datetime.utcnow().isoformat()
     saved = discovery_repo.update(saved)
 
+    # Pass access token from connection for real Azure calls
+    access_token = connection.get("access_token")
+
     tool_result = execute_tool_with_retries_fn(
         tool_id,
         args,
@@ -156,6 +159,7 @@ def run_discovery_workflow(
         correlation_id=correlation_id,
         session_id=session_id,
         max_retries=settings.max_total_retries,
+        access_token=access_token,
     )
 
     # Update plan with tool execution result

@@ -35,6 +35,19 @@ class LoginRequest(BaseModel):
     password: str
 
 
+class ResetPasswordRequest(BaseModel):
+    """Request model for password reset (dev mode: no email verification)."""
+    email: EmailStr
+    new_password: str = Field(..., min_length=8)
+    confirm_password: str
+
+    @validator("confirm_password")
+    def passwords_match(cls, v: str, values: Dict[str, str]) -> str:
+        if "new_password" in values and v != values["new_password"]:
+            raise ValueError("Passwords do not match.")
+        return v
+
+
 class CompleteProfileRequest(BaseModel):
     """Request model for completing user profile (OAuth users)."""
     name: str = Field(..., min_length=2, max_length=200)
@@ -68,6 +81,20 @@ class CreateConnectionRequest(BaseModel):
     access_token: Optional[str] = None
     expires_at: Optional[str] = None
     rbac_tier: str = Field("inventory", regex="^(inventory|cost|security)$")
+    client_id: Optional[str] = None
+    client_secret: Optional[str] = None
+
+    @validator("client_id", always=True)
+    def sp_requires_credentials(cls, v, values):
+        if values.get("provider") == "service_principal" and not v:
+            raise ValueError("client_id is required for service_principal provider.")
+        return v
+
+    @validator("client_secret", always=True)
+    def sp_requires_secret(cls, v, values):
+        if values.get("provider") == "service_principal" and not v:
+            raise ValueError("client_secret is required for service_principal provider.")
+        return v
 
 
 class Connection(BaseModel):
