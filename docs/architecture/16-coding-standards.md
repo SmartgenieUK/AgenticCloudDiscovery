@@ -37,10 +37,26 @@ Minimum tests:
 - Orchestrator retry budget enforcement
 - Orchestrator confidence gating refusal path (if implemented)
 
+## Daily Technical Checkpoints
+At the end of every coding session, generate a checkpoint file and save it to `docs/techcheckpoint/`. This is mandatory for continuity across sessions and progress tracking.
+
+**File naming:** `DailyCheckPoint_dd_mm_yyyy_hh_mm.md`
+
+**Required sections:**
+1. **Summary** — What was implemented and why (1-2 paragraphs)
+2. **Files changed/added** — Table of every file touched with a short description
+3. **How to run locally** — Exact commands and what success looks like
+4. **Known issues / risks / TODOs** — Bullet list of open items
+5. **Next 3 recommended increments** — Small, testable next steps
+6. **Resume prompt** — A copy-paste block for the next session that includes: current milestone and status, what exists and is working, what to build next, and the guardrails to follow
+
+**Process:** Use `docs/prompts/END_PROMPT.md` as the trigger. Commit the checkpoint file alongside any code changes.
+
 ## Repo Conventions
 - Keep services separated:
   - mcp-server/
   - agent-orchestrator/
   - client-ui/
   - infra/
+  - docs/techcheckpoint/
 - Shared utilities go in shared/ only if truly cross-cutting (telemetry, models)
