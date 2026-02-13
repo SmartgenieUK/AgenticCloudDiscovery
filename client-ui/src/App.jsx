@@ -4,6 +4,7 @@ import { api } from "./api";
 import CompleteProfile from "./pages/CompleteProfile";
 import Dashboard from "./pages/Dashboard";
 import Discovery from "./pages/Discovery";
+import Topology from "./pages/Topology";
 import Login from "./pages/Login";
 import Register from "./pages/Register";
 
@@ -41,6 +42,7 @@ const App = () => (
       <>
         <Route path="/" element={<Navigate to="/discovery" replace />} />
         <Route path="/discovery" element={<Discovery />} />
+        <Route path="/topology/:discoveryId" element={<Topology />} />
         <Route path="/dashboard" element={<Dashboard />} />
         <Route path="/login" element={<Login />} />
         <Route path="/register" element={<Register />} />
@@ -73,6 +75,14 @@ const App = () => (
           element={
             <ProtectedRoute>
               <Discovery />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/topology/:discoveryId"
+          element={
+            <ProtectedRoute>
+              <Topology />
             </ProtectedRoute>
           }
         />

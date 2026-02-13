@@ -55,10 +55,7 @@ class Settings:
         self.mcp_base_url = os.getenv("MCP_BASE_URL")
         self.mcp_execute_path = os.getenv("MCP_EXECUTE_PATH", "/execute")
         self.mcp_list_tools_path = os.getenv("MCP_LIST_TOOLS_PATH", "/tools")
-        self.mcp_stub_mode = os.getenv(
-            "MCP_STUB_MODE",
-            "true" if not self.mcp_base_url else "false"
-        ).lower() == "true"
+        self.mcp_stub_mode = os.getenv("MCP_STUB_MODE", "false").lower() == "true"
         self.mcp_timeout_seconds = float(os.getenv("MCP_TIMEOUT_SECONDS", "10"))
 
         # Orchestrator execution limits

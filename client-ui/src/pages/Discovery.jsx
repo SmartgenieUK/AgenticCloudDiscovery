@@ -19,12 +19,14 @@ const Discovery = () => {
   const [loading, setLoading] = useState(false);
   const [creating, setCreating] = useState(false);
   const [newConn, setNewConn] = useState({
-    tenant_id: "",
-    subscription_ids: "",
-    provider: "service_principal",
+    tenant_id: "7f520e65-937e-49bd-b387-74d75cdf054b",
+    subscription_ids: "67092ad3-497d-4455-8bea-4d7a4ed42344",
+    provider: "managed_identity",
     client_id: "",
     client_secret: "",
   });
+  const [availableLayers, setAvailableLayers] = useState([]);
+  const [selectedLayers, setSelectedLayers] = useState(["inventory"]);
   const [logs, setLogs] = useState([]);
   const [showRaw, setShowRaw] = useState(false);
 
@@ -39,11 +41,31 @@ const Discovery = () => {
     [connections, form.connection_id],
   );
 
+  // Load connections and layers with retry (orchestrator may still be starting)
   useEffect(() => {
+    let cancelled = false;
+    const loadWithRetry = async (label, fn, onSuccess, onError, retries = 3, delay = 2000) => {
+      for (let i = 0; i <= retries; i++) {
+        if (cancelled) return;
+        try {
+          const data = await fn();
+          if (!cancelled) onSuccess(data);
+          return;
+        } catch {
+          if (i < retries) {
+            await new Promise((r) => setTimeout(r, delay));
+          } else if (!cancelled) {
+            onError();
+          }
+        }
+      }
+    };
+
     log("info", "Loading connections...");
-    api
-      .listConnections()
-      .then((data) => {
+    loadWithRetry(
+      "connections",
+      () => api.listConnections(),
+      (data) => {
         setConnections(data);
         if (data.length > 0) {
           setForm((prev) => ({
@@ -55,12 +77,67 @@ const Discovery = () => {
         } else {
           log("warn", "No connections found. Create one to get started.");
         }
-      })
-      .catch(() => {
+      },
+      () => {
         setError("Unable to load connections.");
         log("error", "Failed to load connections from orchestrator");
-      });
+      },
+    );
+
+    loadWithRetry(
+      "layers",
+      () => api.listLayers(),
+      (data) => {
+        setAvailableLayers(data);
+        log("info", `Loaded ${data.length} discovery layers (${data.filter((l) => l.enabled).length} enabled)`);
+      },
+      () => log("warn", "Failed to load layers — layer selection disabled"),
+    );
+
+    return () => { cancelled = true; };
   }, []);
+
+  const handleLayerToggle = useCallback((layerId) => {
+    setSelectedLayers((prev) => {
+      if (prev.includes(layerId)) {
+        // Uncheck: also remove layers that depend on this one
+        const removed = new Set([layerId]);
+        let changed = true;
+        while (changed) {
+          changed = false;
+          for (const layer of availableLayers) {
+            if (!removed.has(layer.layer_id) && prev.includes(layer.layer_id)) {
+              if (layer.depends_on.some((dep) => removed.has(dep))) {
+                removed.add(layer.layer_id);
+                changed = true;
+              }
+            }
+          }
+        }
+        return prev.filter((id) => !removed.has(id));
+      } else {
+        // Check: auto-resolve dependencies
+        const next = new Set(prev);
+        const toResolve = [layerId];
+        while (toResolve.length > 0) {
+          const current = toResolve.pop();
+          if (!next.has(current)) {
+            next.add(current);
+            const layer = availableLayers.find((l) => l.layer_id === current);
+            if (layer) {
+              for (const dep of layer.depends_on) {
+                if (!next.has(dep)) toResolve.push(dep);
+              }
+            }
+          }
+        }
+        // Sort by layer_number
+        const layerOrder = {};
+        for (const l of availableLayers) layerOrder[l.layer_id] = l.layer_number;
+        return [...next].sort((a, b) => (layerOrder[a] || 0) - (layerOrder[b] || 0));
+      }
+    });
+  }, [availableLayers]);
 
   const handleRun = async (e) => {
     e.preventDefault();
@@ -89,10 +166,12 @@ const Discovery = () => {
         tenant_id: form.tenant_id || undefined,
         subscription_id: form.subscription_id || undefined,
         message: form.message,
+        layers: selectedLayers.length > 0 ? selectedLayers : undefined,
       };
-      log("info", `POST /chat ${JSON.stringify({ connection_id: payload.connection_id.slice(0, 8) + "..." })}`);
+      log("info", `POST /chat ${JSON.stringify({ connection_id: payload.connection_id.slice(0, 8) + "...", layers: payload.layers })}`);
 
       const data = await api.chat(payload);
+      console.log("[Discovery] Full response:", data);
       setPlan(data.plan);
       setResponse(data);
 
@@ -103,14 +182,45 @@ const Discovery = () => {
       log("info", `discovery_id: ${data.discovery?.discovery_id || "?"}`);
       log("info", `status: ${data.discovery?.status || "?"} | stage: ${data.discovery?.stage || "?"}`);
 
-      // Log category results
+      // Log KQL queries from layer plan steps
+      if (data.layer_plan) {
+        data.layer_plan.forEach((lp) => {
+          log("info", `Layer [${lp.label}]: ${lp.status} (${lp.steps?.length || 0} tools)`);
+          (lp.steps || []).forEach((step) => {
+            if (step.detail?.kql_query) {
+              log("info", `KQL [${step.label || step.name}]:`);
+              log("info", `  ${step.detail.kql_query}`);
+            }
+            if (step.detail?.resource_count != null) {
+              log("info", `  -> ${step.detail.resource_count} resources returned`);
+            }
+            if (step.detail?.error) {
+              log("error", `  -> Error: ${step.detail.error}`);
+            }
+          });
+        });
+      }
+
+      // Log resource type breakdown from inventory
+      if (data.discovery?.results?.inventory?.resources) {
+        const typeCounts = {};
+        data.discovery.results.inventory.resources.forEach((r) => {
+          const t = r.type || "unknown";
+          typeCounts[t] = (typeCounts[t] || 0) + 1;
+        });
+        log("info", `Resource types discovered:`);
+        Object.entries(typeCounts).sort((a, b) => b[1] - a[1]).forEach(([t, c]) => {
+          log("info", `  ${t}: ${c}`);
+        });
+      }
+
+      // Log service categories (dynamic — derived from actual resources found)
       if (data.discovery?.results?.categories) {
-        Object.entries(data.discovery.results.categories).forEach(([cat, result]) => {
-          const icon = result.status === "completed" ? "+" : result.status === "skipped" ? "-" : "!";
-          log(
-            result.status === "completed" ? "success" : "warn",
-            `  [${icon}] ${cat}: ${result.status} (${result.resource_count} resources)`,
-          );
+        const cats = Object.entries(data.discovery.results.categories)
+          .sort((a, b) => b[1].resource_count - a[1].resource_count);
+        log("info", `Service categories (${cats.length}):`);
+        cats.forEach(([ns, cat]) => {
+          log("success", `  ${cat.label || ns}: ${cat.resource_count} resources`);
         });
       }
 
@@ -165,8 +275,10 @@ const Discovery = () => {
         connection_id: created.connection_id,
         tenant_id: created.tenant_id || "",
       }));
-      setNewConn({ tenant_id: "", subscription_ids: "", provider: "service_principal", client_id: "", client_secret: "" });
       log("success", `Azure connection created: ${created.connection_id}`);
+      if (created.display_name) {
+        log("success", `Authenticated as: ${created.display_name}`);
+      }
     } catch (err) {
       setError(err.message);
       log("error", `Connection failed: ${err.message}`);
@@ -196,7 +308,16 @@ const Discovery = () => {
         <div className="discovery-controls">
           {/* Create connection */}
           <div className="card" style={{ marginTop: 0 }}>
-            <h3 style={{ margin: "0 0 8px" }}>Connect to Azure</h3>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
+            <h3 style={{ margin: 0 }}>Connect to Azure</h3>
+            {connections.length > 0 && (
+              <span className="stepper-badge stepper-badge-done" style={{ fontSize: "11px" }}>
+                {connections[connections.length - 1].display_name
+                  ? `Connected as ${connections[connections.length - 1].display_name}`
+                  : `Connected (${connections[connections.length - 1].provider})`}
+              </span>
+            )}
+          </div>
             <div className="grid-2">
               <div>
                 <label htmlFor="conn-tenant">Tenant ID</label>
@@ -256,7 +377,7 @@ const Discovery = () => {
             )}
             <div className="actions" style={{ marginTop: "8px" }}>
               <button className="secondary" onClick={handleCreateConnection} disabled={creating}>
-                {creating ? "Connecting..." : "Connect to Azure"}
+                {creating ? "Connecting..." : connections.length > 0 ? "Reconnect to Azure" : "Connect to Azure"}
               </button>
             </div>
           </div>
@@ -284,13 +405,17 @@ const Discovery = () => {
                     </select>
                   </div>
                   <div>
-                    <label htmlFor="subscription_id">Subscription ID</label>
-                    <input
+                    <label htmlFor="subscription_id">Subscription</label>
+                    <select
                       id="subscription_id"
                       value={form.subscription_id}
                       onChange={(e) => setForm({ ...form, subscription_id: e.target.value })}
-                      placeholder="sub-123 (optional)"
-                    />
+                    >
+                      <option value="">All subscriptions</option>
+                      {(selectedConnection?.subscription_ids || []).map((sub) => (
+                        <option key={sub} value={sub}>{sub}</option>
+                      ))}
+                    </select>
                   </div>
                 </div>
                 <div>
@@ -302,6 +427,29 @@ const Discovery = () => {
                     placeholder="uses connection tenant by default"
                   />
                 </div>
+                {availableLayers.length > 0 && (
+                  <div>
+                    <label>Discovery Layers</label>
+                    <div className="layer-checkboxes">
+                      {availableLayers.map((layer) => (
+                        <label
+                          key={layer.layer_id}
+                          className={`layer-checkbox ${!layer.enabled ? "layer-disabled" : ""}`}
+                          title={layer.description}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={selectedLayers.includes(layer.layer_id)}
+                            disabled={!layer.enabled}
+                            onChange={() => handleLayerToggle(layer.layer_id)}
+                          />
+                          <span>L{layer.layer_number}: {layer.label}</span>
+                          {!layer.enabled && <span className="layer-coming-soon">coming soon</span>}
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 <div>
                   <label htmlFor="message">Message</label>
                   <input
@@ -325,6 +473,7 @@ const Discovery = () => {
           <AgentStepper
             running={loading}
             plan={plan}
+            layerPlan={response?.layer_plan || null}
             error={error}
             response={response}
           />
@@ -368,18 +517,68 @@ const Discovery = () => {
             </div>
           )}
 
+          {/* Layer results */}
+          {response?.layer_plan && !loading && (
+            <div className="card">
+              <h3 style={{ margin: "0 0 12px" }}>Layer Results</h3>
+              {response.layer_plan.map((lp) => (
+                <div key={lp.layer_id} className="layer-result-group">
+                  <div className="layer-result-header">
+                    <span className="layer-result-title">L{lp.layer_number}: {lp.label}</span>
+                    {lp.auto_resolved && <span className="stepper-auto-tag">auto</span>}
+                    <span className={`stepper-badge stepper-badge-${lp.status === "completed" ? "done" : lp.status === "failed" ? "error" : "running"}`}>
+                      {lp.status}
+                    </span>
+                  </div>
+                  {lp.steps && lp.steps.length > 0 && (
+                    <div className="layer-tool-list">
+                      {lp.steps.map((step, i) => (
+                        <div key={i} className="layer-tool-item">
+                          <span className={`layer-tool-icon ${step.status === "completed" ? "layer-tool-done" : step.status === "failed" ? "layer-tool-fail" : ""}`}>
+                            {step.status === "completed" ? "\u2713" : step.status === "failed" ? "\u2717" : "\u2022"}
+                          </span>
+                          <span className="layer-tool-name">{step.label || step.name}</span>
+                          {step.detail?.resource_count != null && (
+                            <span className="layer-tool-count">{step.detail.resource_count} resources</span>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                  {lp.analysis && (
+                    <div className="layer-analysis-stub">
+                      Analysis: {lp.analysis.status === "completed" ? "stub" : lp.analysis.status}
+                      {lp.analysis.detail?.mode === "stub" && " (AI analysis coming soon)"}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
           {/* Inventory summary */}
           {response && !loading && response.discovery?.results?.inventory && (
             <div className="card">
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "8px" }}>
                 <h3 style={{ margin: 0 }}>Discovery Result</h3>
-                <button
-                  className="secondary"
-                  style={{ padding: "6px 12px", fontSize: "12px" }}
-                  onClick={() => setShowRaw((v) => !v)}
-                >
-                  {showRaw ? "Hide Raw" : "Show Raw JSON"}
-                </button>
+                <div style={{ display: "flex", gap: "8px" }}>
+                  {response.discovery?.discovery_id && (
+                    <button
+                      className="primary"
+                      style={{ padding: "6px 12px", fontSize: "12px" }}
+                      onClick={() => navigate(`/topology/${response.discovery.discovery_id}`)}
+                    >
+                      View Topology
+                    </button>
+                  )}
+                  <button
+                    className="secondary"
+                    style={{ padding: "6px 12px", fontSize: "12px" }}
+                    onClick={() => setShowRaw((v) => !v)}
+                  >
+                    {showRaw ? "Hide Raw" : "Show Raw JSON"}
+                  </button>
+                </div>
               </div>
               <div className="result-summary">
                 <div className="result-row">

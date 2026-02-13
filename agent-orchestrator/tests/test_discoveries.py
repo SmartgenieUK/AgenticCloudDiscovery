@@ -1,5 +1,6 @@
 import sys
 from pathlib import Path
+from unittest.mock import patch
 
 from fastapi.testclient import TestClient
 
@@ -14,13 +15,29 @@ from discoveries import InMemoryDiscoveryRepository  # type: ignore  # noqa: E40
 from auth.dependencies import set_repo_provider  # type: ignore  # noqa: E402
 
 
+def _mock_mcp_execute(tool_id, args, **kwargs):
+    """Mock MCP execute for testing — returns realistic tool results."""
+    return {
+        "status": "success",
+        "metadata": {"latency_ms": 50, "status_code": 200},
+        "result": {
+            "summary": f"{tool_id} completed: 3 resources.",
+            "counts": {"resources": 3, "types": 1},
+            "timestamp": "2025-01-01T00:00:00Z",
+            "resources": [
+                {"name": f"res-{i}", "type": "Microsoft.Compute/virtualMachines"}
+                for i in range(3)
+            ],
+        },
+    }
+
+
 def fresh_client() -> TestClient:
     repo = InMemoryUserRepository()
     main.repo_provider = repo
     main.connection_repo = InMemoryConnectionRepository()
     main.discovery_repo = InMemoryDiscoveryRepository()
-    main.settings.mcp_stub_mode = True
-    main.settings.mcp_base_url = ""
+    main.settings.mcp_base_url = "http://mock-mcp:9000"
     set_repo_provider(repo)
     return TestClient(app)
 
@@ -54,7 +71,8 @@ def seed_user_and_connection(client: TestClient):
     return conn.json()["connection_id"]
 
 
-def test_discovery_requires_connection_scope():
+@patch("mcp.client.call_mcp_execute", side_effect=_mock_mcp_execute)
+def test_discovery_requires_connection_scope(_mock):
     client = fresh_client()
     connection_id = seed_user_and_connection(client)
     # Unauthorized subscription should fail
@@ -77,7 +95,8 @@ def test_discovery_requires_connection_scope():
     assert "results" in body
 
 
-def test_chat_endpoint_runs_discovery_and_returns_plan():
+@patch("mcp.client.call_mcp_execute", side_effect=_mock_mcp_execute)
+def test_chat_endpoint_runs_discovery_and_returns_plan(_mock):
     client = fresh_client()
     connection_id = seed_user_and_connection(client)
     resp = client.post(
@@ -99,7 +118,8 @@ def test_chat_endpoint_runs_discovery_and_returns_plan():
     assert data["plan"][-1]["status"] == "completed"
 
 
-def test_rbac_blocks_higher_tier():
+@patch("mcp.client.call_mcp_execute", side_effect=_mock_mcp_execute)
+def test_rbac_blocks_higher_tier(_mock):
     client = fresh_client()
     connection_id = seed_user_and_connection(client)
     resp = client.post(

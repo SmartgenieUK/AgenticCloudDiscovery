@@ -4,6 +4,7 @@ Integration tests for orchestrator → MCP → discovery workflow.
 Simpler, focused tests that match the actual implementation.
 """
 import pytest
+from unittest.mock import patch
 from fastapi.testclient import TestClient
 
 import main
@@ -12,22 +13,42 @@ from users import InMemoryUserRepository
 from connections import InMemoryConnectionRepository
 from discoveries import InMemoryDiscoveryRepository
 from auth.dependencies import set_repo_provider
+from auth.utils import rate_limit_store
+
+
+def _mock_mcp_execute(tool_id, args, **kwargs):
+    """Mock MCP execute for testing."""
+    return {
+        "status": "success",
+        "metadata": {"latency_ms": 50, "status_code": 200},
+        "result": {
+            "summary": f"{tool_id} completed: 3 resources.",
+            "counts": {"resources": 3, "types": 1},
+            "timestamp": "2025-01-01T00:00:00Z",
+            "resources": [
+                {"name": f"res-{i}", "type": "Microsoft.Compute/virtualMachines"}
+                for i in range(3)
+            ],
+        },
+    }
 
 
 @pytest.fixture
-def client():
-    """Test client with in-memory repositories."""
-    # Initialize in-memory repositories
+def client(monkeypatch):
+    """Test client with in-memory repositories and mocked MCP."""
+    rate_limit_store.clear()
+
     user_repo = InMemoryUserRepository()
     connection_repo = InMemoryConnectionRepository()
     discovery_repo = InMemoryDiscoveryRepository()
 
-    # Set repository providers by directly assigning to main module
     main.repo_provider = user_repo
     main.connection_repo = connection_repo
     main.discovery_repo = discovery_repo
-    main.settings.mcp_stub_mode = True  # Use stub mode for tests
+    main.settings.mcp_base_url = "http://mock-mcp:9000"
     set_repo_provider(user_repo)
+
+    monkeypatch.setattr("mcp.client.call_mcp_execute", _mock_mcp_execute)
 
     return TestClient(app)
 

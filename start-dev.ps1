@@ -39,7 +39,7 @@ Write-Host "  Dependencies: using existing venvs + node_modules" -ForegroundColo
 Write-Host "[3/5] Starting MCP Server on :9000..." -ForegroundColor Yellow
 $mcp = Start-Process powershell -ArgumentList @(
     "-NoExit", "-Command",
-    "Set-Location '$ROOT\mcp-server'; & '$ROOT\mcp-server\venv\Scripts\Activate.ps1'; `$env:MCP_STUB_MODE='true'; uvicorn main:app --reload --port 9000"
+    "Set-Location '$ROOT\mcp-server'; & '$ROOT\mcp-server\venv\Scripts\Activate.ps1'; uvicorn main:app --reload --port 9000"
 ) -PassThru
 Write-Host "  MCP Server PID: $($mcp.Id)" -ForegroundColor Green
 
@@ -48,7 +48,7 @@ Write-Host "[4/5] Starting Orchestrator on :8000..." -ForegroundColor Yellow
 Start-Sleep -Seconds 2  # let MCP start first
 $orch = Start-Process powershell -ArgumentList @(
     "-NoExit", "-Command",
-    "Set-Location '$ROOT\agent-orchestrator'; & '$ROOT\agent-orchestrator\venv\Scripts\Activate.ps1'; `$env:DEV_SKIP_AUTH='true'; `$env:MCP_STUB_MODE='true'; `$env:MCP_BASE_URL='http://localhost:9000'; uvicorn main:app --reload --port 8000"
+    "Set-Location '$ROOT\agent-orchestrator'; & '$ROOT\agent-orchestrator\venv\Scripts\Activate.ps1'; `$env:DEV_SKIP_AUTH='true'; `$env:MCP_BASE_URL='http://localhost:9000'; uvicorn main:app --reload --port 8000"
 ) -PassThru
 Write-Host "  Orchestrator PID: $($orch.Id)" -ForegroundColor Green
 
@@ -71,8 +71,8 @@ Write-Host "  MCP Server:   http://localhost:9000/health" -ForegroundColor White
 Write-Host "  Orchestrator: http://localhost:8000/healthz" -ForegroundColor White
 Write-Host "  Client UI:    http://localhost:5173"         -ForegroundColor White
 Write-Host ""
-Write-Host "  Auth bypassed (DEV_SKIP_AUTH=true)" -ForegroundColor DarkGray
-Write-Host "  MCP stub mode (no Azure needed)"    -ForegroundColor DarkGray
+Write-Host "  App auth bypassed (DEV_SKIP_AUTH=true)" -ForegroundColor DarkGray
+Write-Host "  Azure auth: real SP credentials required" -ForegroundColor DarkGray
 Write-Host ""
 Write-Host "  To stop: close the 3 PowerShell windows," -ForegroundColor DarkGray
 Write-Host "  or run: .\stop-dev.ps1" -ForegroundColor DarkGray

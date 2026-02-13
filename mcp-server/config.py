@@ -21,7 +21,7 @@ class Settings(BaseSettings):
 
     # APIM Configuration
     apim_base_url: Optional[str] = os.getenv("APIM_BASE_URL")
-    apim_stub_mode: bool = os.getenv("APIM_STUB_MODE", "true").lower() == "true"
+    apim_stub_mode: bool = os.getenv("APIM_STUB_MODE", "false").lower() == "true"
     apim_timeout_seconds: float = float(os.getenv("APIM_TIMEOUT_SECONDS", "30"))
 
     # Policy Defaults

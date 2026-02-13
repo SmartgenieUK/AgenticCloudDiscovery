@@ -20,6 +20,13 @@ from .agent_workflow import (
     match_providers_to_categories,
     build_agent_plan,
     run_agent_discovery_workflow,
+    run_layered_discovery_workflow,
+)
+from .layers import (
+    LAYER_REGISTRY,
+    LayerDefinition,
+    resolve_layer_dependencies,
+    get_enabled_layers,
 )
 
 __all__ = [
@@ -39,4 +46,9 @@ __all__ = [
     "match_providers_to_categories",
     "build_agent_plan",
     "run_agent_discovery_workflow",
+    "run_layered_discovery_workflow",
+    "LAYER_REGISTRY",
+    "LayerDefinition",
+    "resolve_layer_dependencies",
+    "get_enabled_layers",
 ]

@@ -2,7 +2,7 @@
 import logging
 import time
 import uuid
-from typing import Dict, Optional, Tuple
+from typing import Dict, List, Optional, Tuple
 from datetime import datetime
 import httpx
 from models import ExecuteToolRequest, ExecuteToolResponse, ExecutionMetadata, ErrorResponse
@@ -11,6 +11,9 @@ from config import settings
 logger = logging.getLogger(__name__)
 
 ARM_BASE_URL = "https://management.azure.com"
+
+# Max pages to prevent infinite loops
+MAX_RG_PAGES = 100
 
 
 class ToolExecutor:
@@ -77,96 +80,175 @@ class ToolExecutor:
         url = f"{base}{endpoint}?api-version={api_version}"
         return url
 
-    # Category-specific stub data with realistic Azure resource types
-    STUB_DATA = {
-        "inventory_discovery": {
-            "resources": [
-                {"type": "Microsoft.Compute/virtualMachines", "name": "vm-web-01", "location": "eastus", "id": "/subscriptions/sub-1/resourceGroups/rg-prod/providers/Microsoft.Compute/virtualMachines/vm-web-01"},
-                {"type": "Microsoft.Compute/virtualMachines", "name": "vm-api-01", "location": "eastus", "id": "/subscriptions/sub-1/resourceGroups/rg-prod/providers/Microsoft.Compute/virtualMachines/vm-api-01"},
-                {"type": "Microsoft.Storage/storageAccounts", "name": "saproddata01", "location": "eastus", "id": "/subscriptions/sub-1/resourceGroups/rg-prod/providers/Microsoft.Storage/storageAccounts/saproddata01"},
-                {"type": "Microsoft.Storage/storageAccounts", "name": "saproddlogs", "location": "eastus", "id": "/subscriptions/sub-1/resourceGroups/rg-prod/providers/Microsoft.Storage/storageAccounts/saproddlogs"},
-                {"type": "Microsoft.Network/virtualNetworks", "name": "vnet-prod", "location": "eastus", "id": "/subscriptions/sub-1/resourceGroups/rg-prod/providers/Microsoft.Network/virtualNetworks/vnet-prod"},
-                {"type": "Microsoft.Network/networkSecurityGroups", "name": "nsg-web", "location": "eastus", "id": "/subscriptions/sub-1/resourceGroups/rg-prod/providers/Microsoft.Network/networkSecurityGroups/nsg-web"},
-                {"type": "Microsoft.Sql/servers", "name": "sql-prod-01", "location": "eastus", "id": "/subscriptions/sub-1/resourceGroups/rg-prod/providers/Microsoft.Sql/servers/sql-prod-01"},
-                {"type": "Microsoft.Web/sites", "name": "app-frontend", "location": "eastus", "id": "/subscriptions/sub-1/resourceGroups/rg-prod/providers/Microsoft.Web/sites/app-frontend"},
-                {"type": "Microsoft.Web/sites", "name": "func-processor", "location": "eastus", "id": "/subscriptions/sub-1/resourceGroups/rg-prod/providers/Microsoft.Web/sites/func-processor"},
-                {"type": "Microsoft.KeyVault/vaults", "name": "kv-prod-01", "location": "eastus", "id": "/subscriptions/sub-1/resourceGroups/rg-prod/providers/Microsoft.KeyVault/vaults/kv-prod-01"},
-            ],
-            "summary": "Found 10 resources across 6 types",
-            "counts": {"resources": 10, "types": 6},
-        },
-        "compute_discovery": {
-            "resources": [
-                {"type": "Microsoft.Compute/virtualMachines", "name": "vm-web-01", "location": "eastus", "properties": {"vmSize": "Standard_B2s", "osProfile": {"computerName": "vm-web-01"}, "storageProfile": {"osDisk": {"osType": "Linux", "diskSizeGB": 30}}}},
-                {"type": "Microsoft.Compute/virtualMachines", "name": "vm-api-01", "location": "eastus", "properties": {"vmSize": "Standard_D2s_v3", "osProfile": {"computerName": "vm-api-01"}, "storageProfile": {"osDisk": {"osType": "Linux", "diskSizeGB": 64}}}},
-            ],
-            "summary": "Found 2 virtual machines",
-            "counts": {"virtual_machines": 2},
-        },
-        "storage_discovery": {
-            "resources": [
-                {"type": "Microsoft.Storage/storageAccounts", "name": "saproddata01", "location": "eastus", "sku": {"name": "Standard_LRS", "tier": "Standard"}, "kind": "StorageV2", "properties": {"accessTier": "Hot"}},
-                {"type": "Microsoft.Storage/storageAccounts", "name": "saproddlogs", "location": "eastus", "sku": {"name": "Standard_GRS", "tier": "Standard"}, "kind": "BlobStorage", "properties": {"accessTier": "Cool"}},
-            ],
-            "summary": "Found 2 storage accounts",
-            "counts": {"storage_accounts": 2},
-        },
-        "database_discovery": {
-            "resources": [
-                {"type": "Microsoft.Sql/servers", "name": "sql-prod-01", "location": "eastus", "properties": {"administratorLogin": "sqladmin", "version": "12.0", "state": "Ready"}},
-            ],
-            "summary": "Found 1 SQL servers",
-            "counts": {"sql_servers": 1},
-        },
-        "networking_discovery": {
-            "resources": [
-                {"type": "Microsoft.Network/virtualNetworks", "name": "vnet-prod", "location": "eastus", "properties": {"addressSpace": {"addressPrefixes": ["10.0.0.0/16"]}, "subnets": [{"name": "default", "properties": {"addressPrefix": "10.0.0.0/24"}}]}},
-            ],
-            "summary": "Found 1 virtual networks",
-            "counts": {"virtual_networks": 1},
-        },
-        "appservice_discovery": {
-            "resources": [
-                {"type": "Microsoft.Web/sites", "name": "app-frontend", "location": "eastus", "kind": "app", "properties": {"state": "Running", "defaultHostName": "app-frontend.azurewebsites.net"}},
-                {"type": "Microsoft.Web/sites", "name": "func-processor", "location": "eastus", "kind": "functionapp", "properties": {"state": "Running", "defaultHostName": "func-processor.azurewebsites.net"}},
-            ],
-            "summary": "Found 2 web/function apps",
-            "counts": {"web_apps": 2},
-        },
-    }
+    @staticmethod
+    def _parse_throttle_headers(headers: httpx.Headers) -> Tuple[Optional[int], Optional[float]]:
+        """Parse Resource Graph throttle headers.
 
-    def execute_stub(self, request: ExecuteToolRequest, tool: Dict) -> ExecuteToolResponse:
-        """Execute tool in stub mode (returns mock response)."""
-        logger.info(f"Executing tool {request.tool_id} in STUB mode")
+        Returns:
+            (remaining_quota, resets_after_seconds) — either may be None.
+        """
+        remaining = None
+        resets_after = None
 
-        start_time = time.time()
-        time.sleep(0.1)  # Simulate network latency
-        latency_ms = int((time.time() - start_time) * 1000)
+        raw_remaining = headers.get("x-ms-user-quota-remaining")
+        if raw_remaining is not None:
+            try:
+                remaining = int(raw_remaining)
+            except (ValueError, TypeError):
+                pass
 
-        stub = self.STUB_DATA.get(request.tool_id, {})
-        mock_result = {
-            "summary": stub.get("summary", f"{request.tool_id} executed in stub mode"),
-            "timestamp": datetime.utcnow().isoformat() + "Z",
-            "scope": {
-                "tenant_id": request.args.get("tenant_id"),
-                "subscription_id": request.args.get("subscription_id"),
-            },
-            "counts": stub.get("counts", {"resources": 0}),
-            "resources": stub.get("resources", []),
-            "stub": True,
-        }
+        raw_resets = headers.get("x-ms-user-quota-resets-after")
+        if raw_resets:
+            try:
+                # Format: HH:MM:SS
+                parts = raw_resets.split(":")
+                if len(parts) == 3:
+                    resets_after = int(parts[0]) * 3600 + int(parts[1]) * 60 + float(parts[2])
+            except (ValueError, TypeError):
+                pass
 
-        return ExecuteToolResponse(
-            status="success",
-            result=mock_result,
-            error=None,
-            metadata=ExecutionMetadata(
-                latency_ms=latency_ms,
-                status_code=200,
-                request_id=str(uuid.uuid4()),
-                redaction_applied=False
+        return remaining, resets_after
+
+    def _execute_resource_graph(
+        self,
+        request: ExecuteToolRequest,
+        tool: Dict,
+        headers: Dict[str, str],
+        subscription_ids: List[str],
+    ) -> Tuple[List[Dict], int]:
+        """Execute Resource Graph query with $skipToken pagination loop.
+
+        Returns:
+            (all_resources, total_records)
+        """
+        kql = tool.get("kql_template", "resources")
+        base = self.apim_base_url if self.apim_base_url else ARM_BASE_URL
+        url = f"{base}{tool['endpoint']}?api-version={tool['api_version']}"
+
+        all_resources: List[Dict] = []
+        skip_token: Optional[str] = None
+        page = 0
+
+        while page < MAX_RG_PAGES:
+            page += 1
+            body = {
+                "subscriptions": subscription_ids,
+                "query": kql,
+                "options": {
+                    "resultFormat": "objectArray",
+                    "$top": 1000,
+                },
+            }
+            if skip_token:
+                body["options"]["$skipToken"] = skip_token
+
+            logger.info(
+                "resource_graph_query page=%d tool=%s subs=%d trace_id=%s",
+                page, request.tool_id, len(subscription_ids),
+                request.trace_id or "",
             )
+
+            with httpx.Client(timeout=self.timeout) as client:
+                response = client.post(url, headers=headers, json=body)
+
+            # Handle 429 throttling
+            if response.status_code == 429:
+                retry_after = response.headers.get("Retry-After", "5")
+                try:
+                    wait = float(retry_after)
+                except (ValueError, TypeError):
+                    wait = 5.0
+                logger.warning("resource_graph_throttled retry_after=%.1fs tool=%s", wait, request.tool_id)
+                time.sleep(wait)
+                page -= 1  # Retry same page
+                continue
+
+            response.raise_for_status()
+            result = response.json()
+
+            data = result.get("data", [])
+            all_resources.extend(data)
+
+            # Proactive throttle handling
+            remaining, resets_after = self._parse_throttle_headers(response.headers)
+            if remaining is not None and remaining < 2 and resets_after:
+                logger.warning(
+                    "resource_graph_quota_low remaining=%d resets_after=%.1fs",
+                    remaining, resets_after,
+                )
+                time.sleep(min(resets_after, 10.0))
+
+            skip_token = result.get("$skipToken")
+            if not skip_token:
+                break
+
+        total_records = result.get("totalRecords", len(all_resources)) if page > 0 else len(all_resources)
+        logger.info(
+            "resource_graph_complete tool=%s pages=%d resources=%d total_records=%d",
+            request.tool_id, page, len(all_resources), total_records,
         )
+        return all_resources, total_records
+
+    def _normalize_rg_response(self, tool_id: str, resources: List[Dict], total_records: int) -> Dict:
+        """Normalize Resource Graph results into our standard format."""
+        timestamp = datetime.utcnow().isoformat() + "Z"
+
+        if tool_id == "rg_inventory_discovery":
+            type_counts: Dict[str, int] = {}
+            for r in resources:
+                rtype = r.get("type", "unknown")
+                type_counts[rtype] = type_counts.get(rtype, 0) + 1
+            return {
+                "summary": f"Found {len(resources)} resources across {len(type_counts)} types via Resource Graph",
+                "counts": {"resources": len(resources), "types": len(type_counts)},
+                "timestamp": timestamp,
+                "resources": resources,
+                "type_breakdown": type_counts,
+                "total_records": total_records,
+            }
+
+        elif tool_id == "rg_topology_discovery":
+            type_counts = {}
+            for r in resources:
+                rtype = r.get("type", "unknown")
+                type_counts[rtype] = type_counts.get(rtype, 0) + 1
+            return {
+                "summary": f"Found {len(resources)} network resources across {len(type_counts)} types via Resource Graph",
+                "counts": {"resources": len(resources), "types": len(type_counts)},
+                "timestamp": timestamp,
+                "resources": resources,
+                "type_breakdown": type_counts,
+                "total_records": total_records,
+            }
+
+        elif tool_id == "rg_identity_discovery":
+            assignments = [r for r in resources if "roleassignments" in r.get("type", "").lower()]
+            definitions = [r for r in resources if "roledefinitions" in r.get("type", "").lower()]
+            return {
+                "summary": f"Found {len(resources)} identity resources ({len(assignments)} assignments, {len(definitions)} definitions) via Resource Graph",
+                "counts": {"role_assignments": len(assignments), "role_definitions": len(definitions)},
+                "timestamp": timestamp,
+                "resources": resources,
+                "total_records": total_records,
+            }
+
+        elif tool_id == "rg_policy_discovery":
+            return {
+                "summary": f"Found {len(resources)} policy assignments via Resource Graph",
+                "counts": {"policy_assignments": len(resources)},
+                "timestamp": timestamp,
+                "resources": resources,
+                "total_records": total_records,
+            }
+
+        # Fallback
+        return {
+            "summary": f"{tool_id} returned {len(resources)} resources",
+            "counts": {"resources": len(resources)},
+            "timestamp": timestamp,
+            "resources": resources,
+            "total_records": total_records,
+        }
 
     def execute_real(
         self,
@@ -205,11 +287,57 @@ class ToolExecutor:
                 )
             )
 
-        # Build ARM URL from tool definition
-        url = self.build_arm_url(tool, request.args)
+        # Dispatch: Resource Graph tools use pagination loop, others use standard ARM
+        if tool.get("kql_template"):
+            kql = tool.get("kql_template", "")
+            try:
+                # Resource Graph execution path
+                subscription_ids = request.args.get(
+                    "subscription_ids",
+                    [request.args["subscription_id"]] if request.args.get("subscription_id") else [],
+                )
+                logger.info("resource_graph_kql tool=%s kql=%s subs=%s", request.tool_id, kql, subscription_ids)
+                resources, total_records = self._execute_resource_graph(
+                    request, tool, headers, subscription_ids,
+                )
+                latency_ms = int((time.time() - start_time) * 1000)
+                result = self._normalize_rg_response(request.tool_id, resources, total_records)
+                result["kql_query"] = kql
+                return ExecuteToolResponse(
+                    status="success",
+                    result=result,
+                    error=None,
+                    metadata=ExecutionMetadata(
+                        latency_ms=latency_ms,
+                        status_code=200,
+                        request_id=request_id,
+                        redaction_applied=False
+                    )
+                )
+            except Exception as rg_exc:
+                latency_ms = int((time.time() - start_time) * 1000)
+                logger.error("resource_graph_failed tool=%s error=%s kql=%s", request.tool_id, rg_exc, kql)
+                return ExecuteToolResponse(
+                    status="failure",
+                    result={"kql_query": kql},
+                    error=ErrorResponse(
+                        code="EXECUTION_ERROR",
+                        message=f"Resource Graph query failed: {str(rg_exc)}",
+                        details={"exception": str(rg_exc), "kql_query": kql},
+                        retryable=False,
+                        policy_violation=False
+                    ),
+                    metadata=ExecutionMetadata(
+                        latency_ms=latency_ms,
+                        status_code=None,
+                        request_id=request_id,
+                        redaction_applied=False
+                    )
+                )
 
-        # Execute HTTP request
         try:
+            # Standard ARM API execution path
+            url = self.build_arm_url(tool, request.args)
             method = tool.get("allowed_methods", ["GET"])[0]
             logger.info(f"Calling ARM API: {method} {url} (session_id={request.session_id})")
 
@@ -217,7 +345,6 @@ class ToolExecutor:
                 if method == "GET":
                     response = client.get(url, headers=headers)
                 elif method == "POST":
-                    # For cost queries, build proper request body
                     body = self._build_request_body(request.tool_id, request.args)
                     response = client.post(url, headers=headers, json=body)
                 elif method == "PUT":
@@ -235,7 +362,6 @@ class ToolExecutor:
             # Handle response
             if 200 <= response.status_code < 300:
                 raw_result = response.json() if response.content else {}
-                # Wrap ARM response in our expected format
                 result = self._normalize_arm_response(request.tool_id, raw_result)
                 return ExecuteToolResponse(
                     status="success",
@@ -313,7 +439,11 @@ class ToolExecutor:
             )
 
     def _build_request_body(self, tool_id: str, args: Dict) -> Dict:
-        """Build request body for POST-based ARM APIs (e.g. cost query)."""
+        """Build request body for POST-based ARM APIs (e.g. cost query).
+
+        Note: Resource Graph tools bypass this method — their body is built
+        inside _execute_resource_graph() which handles pagination.
+        """
         if tool_id == "cost_discovery":
             return {
                 "type": "ActualCost",
@@ -402,6 +532,88 @@ class ToolExecutor:
                 "timestamp": datetime.utcnow().isoformat() + "Z",
                 "resources": apps,
             }
+        # --- Layer 2: Topology normalizers ---
+        elif tool_id == "nic_discovery":
+            nics = raw.get("value", [])
+            return {
+                "summary": f"Found {len(nics)} network interfaces",
+                "counts": {"nics": len(nics)},
+                "timestamp": datetime.utcnow().isoformat() + "Z",
+                "resources": nics,
+            }
+        elif tool_id == "nsg_discovery":
+            nsgs = raw.get("value", [])
+            return {
+                "summary": f"Found {len(nsgs)} network security groups",
+                "counts": {"nsgs": len(nsgs)},
+                "timestamp": datetime.utcnow().isoformat() + "Z",
+                "resources": nsgs,
+            }
+        elif tool_id == "public_ip_discovery":
+            pips = raw.get("value", [])
+            return {
+                "summary": f"Found {len(pips)} public IP addresses",
+                "counts": {"public_ips": len(pips)},
+                "timestamp": datetime.utcnow().isoformat() + "Z",
+                "resources": pips,
+            }
+        elif tool_id == "vnet_peering_discovery":
+            vnets = raw.get("value", [])
+            return {
+                "summary": f"Found {len(vnets)} virtual networks with peerings",
+                "counts": {"vnets_with_peerings": len(vnets)},
+                "timestamp": datetime.utcnow().isoformat() + "Z",
+                "resources": vnets,
+            }
+        elif tool_id == "route_table_discovery":
+            tables = raw.get("value", [])
+            return {
+                "summary": f"Found {len(tables)} route tables",
+                "counts": {"route_tables": len(tables)},
+                "timestamp": datetime.utcnow().isoformat() + "Z",
+                "resources": tables,
+            }
+        elif tool_id == "private_endpoint_discovery":
+            endpoints = raw.get("value", [])
+            return {
+                "summary": f"Found {len(endpoints)} private endpoints",
+                "counts": {"private_endpoints": len(endpoints)},
+                "timestamp": datetime.utcnow().isoformat() + "Z",
+                "resources": endpoints,
+            }
+        elif tool_id == "load_balancer_discovery":
+            lbs = raw.get("value", [])
+            return {
+                "summary": f"Found {len(lbs)} load balancers",
+                "counts": {"load_balancers": len(lbs)},
+                "timestamp": datetime.utcnow().isoformat() + "Z",
+                "resources": lbs,
+            }
+        # --- Layer 3: Identity & Access normalizers ---
+        elif tool_id == "role_assignment_discovery":
+            assignments = raw.get("value", [])
+            return {
+                "summary": f"Found {len(assignments)} role assignments",
+                "counts": {"role_assignments": len(assignments)},
+                "timestamp": datetime.utcnow().isoformat() + "Z",
+                "resources": assignments,
+            }
+        elif tool_id == "role_definition_discovery":
+            definitions = raw.get("value", [])
+            return {
+                "summary": f"Found {len(definitions)} role definitions",
+                "counts": {"role_definitions": len(definitions)},
+                "timestamp": datetime.utcnow().isoformat() + "Z",
+                "resources": definitions,
+            }
+        elif tool_id == "policy_assignment_discovery":
+            policies = raw.get("value", [])
+            return {
+                "summary": f"Found {len(policies)} policy assignments",
+                "counts": {"policy_assignments": len(policies)},
+                "timestamp": datetime.utcnow().isoformat() + "Z",
+                "resources": policies,
+            }
         # Fallback: return raw with defaults
         return {
             "summary": f"{tool_id} completed",
@@ -417,16 +629,8 @@ class ToolExecutor:
         connection: Dict,
         force_real: bool = False,
     ) -> ExecuteToolResponse:
-        """
-        Execute tool with APIM routing and token injection.
-
-        Args:
-            force_real: If True, bypass stub mode (used when a real token is available)
-        """
-        if self.stub_mode and not force_real:
-            return self.execute_stub(request, tool)
-        else:
-            return self.execute_real(request, tool, connection)
+        """Execute tool via ARM API with token injection."""
+        return self.execute_real(request, tool, connection)
 
 
 def create_executor() -> ToolExecutor:

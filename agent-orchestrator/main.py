@@ -42,6 +42,8 @@ from discoveries import (
     run_discovery_workflow,
     SERVICE_CATEGORIES,
     run_agent_discovery_workflow,
+    run_layered_discovery_workflow,
+    LAYER_REGISTRY,
 )
 
 # Import auth module
@@ -52,7 +54,7 @@ from auth.dependencies import set_repo_provider
 from mcp import execute_tool_with_retries
 
 # Import Azure auth
-from azure_auth import acquire_sp_token
+from azure_auth import acquire_sp_token, acquire_mi_token
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger("agent-orchestrator.main")
@@ -121,12 +123,19 @@ def create_connection(payload: CreateConnectionRequest, user: Dict = Depends(get
     now = datetime.datetime.utcnow().isoformat()
     access_token = payload.access_token
     token_expiry = payload.expires_at
+    display_name = None
 
-    # Service Principal: acquire Azure AD token using client credentials
+    # Acquire Azure AD token based on auth method
     if payload.provider == "service_principal" and payload.client_id and payload.client_secret:
         token_data = acquire_sp_token(payload.tenant_id, payload.client_id, payload.client_secret)
         access_token = token_data["access_token"]
         token_expiry = token_data["expires_on"]
+        display_name = token_data.get("display_name")
+    elif payload.provider == "managed_identity":
+        token_data = acquire_mi_token(tenant_id=payload.tenant_id)
+        access_token = token_data["access_token"]
+        token_expiry = token_data["expires_on"]
+        display_name = token_data.get("display_name")
 
     connection_doc = {
         "connection_id": str(uuid.uuid4()),
@@ -139,6 +148,7 @@ def create_connection(payload: CreateConnectionRequest, user: Dict = Depends(get
         "access_token": access_token,  # stored server-side, never returned
         "client_id": payload.client_id,  # stored for token refresh
         "client_secret": payload.client_secret,  # stored for token refresh
+        "display_name": display_name,
         "rbac_tier": payload.rbac_tier or "inventory",
         "created_at": now,
         "updated_at": now,
@@ -170,31 +180,58 @@ def chat(
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid connection.")
     validate_connection_scope(connection, payload.tenant_id, payload.subscription_id)
     session_id = payload.session_id or str(uuid.uuid4())
-    outcome = run_agent_discovery_workflow(
-        request=request,
-        connection=connection,
-        tenant_id=payload.tenant_id,
-        subscription_id=payload.subscription_id,
-        session_id=session_id,
-        discovery_repo=discovery_repo,
-        execute_tool_with_retries_fn=execute_tool_with_retries,
-        categories=payload.categories,
-    )
-    response_text = outcome["final_response"] or "Discovery completed."
-    logger.info(
-        "chat_discovery_complete trace_id=%s correlation_id=%s session_id=%s",
-        outcome["trace_id"],
-        outcome["correlation_id"],
-        session_id,
-    )
-    return ChatResponse(
-        session_id=session_id,
-        trace_id=outcome["trace_id"],
-        correlation_id=outcome["correlation_id"],
-        plan=outcome["plan"],
-        discovery=Discovery(**outcome["discovery"]),
-        final_response=response_text,
-    )
+
+    if payload.layers:
+        # Layered discovery workflow
+        outcome = run_layered_discovery_workflow(
+            request=request,
+            connection=connection,
+            tenant_id=payload.tenant_id,
+            subscription_id=payload.subscription_id,
+            session_id=session_id,
+            discovery_repo=discovery_repo,
+            execute_tool_with_retries_fn=execute_tool_with_retries,
+            layer_ids=payload.layers,
+        )
+        response_text = outcome["final_response"] or "Layered discovery completed."
+        logger.info(
+            "chat_layered_discovery_complete trace_id=%s correlation_id=%s session_id=%s",
+            outcome["trace_id"], outcome["correlation_id"], session_id,
+        )
+        return ChatResponse(
+            session_id=session_id,
+            trace_id=outcome["trace_id"],
+            correlation_id=outcome["correlation_id"],
+            plan=outcome["plan"],
+            layer_plan=outcome.get("layer_plan"),
+            discovery=Discovery(**outcome["discovery"]),
+            final_response=response_text,
+        )
+    else:
+        # Legacy category-based workflow
+        outcome = run_agent_discovery_workflow(
+            request=request,
+            connection=connection,
+            tenant_id=payload.tenant_id,
+            subscription_id=payload.subscription_id,
+            session_id=session_id,
+            discovery_repo=discovery_repo,
+            execute_tool_with_retries_fn=execute_tool_with_retries,
+            categories=payload.categories,
+        )
+        response_text = outcome["final_response"] or "Discovery completed."
+        logger.info(
+            "chat_discovery_complete trace_id=%s correlation_id=%s session_id=%s",
+            outcome["trace_id"], outcome["correlation_id"], session_id,
+        )
+        return ChatResponse(
+            session_id=session_id,
+            trace_id=outcome["trace_id"],
+            correlation_id=outcome["correlation_id"],
+            plan=outcome["plan"],
+            discovery=Discovery(**outcome["discovery"]),
+            final_response=response_text,
+        )
 
 
 @app.post("/discoveries", response_model=Discovery)
@@ -204,14 +241,91 @@ def start_discovery(request: Request, payload: DiscoveryRequest, user: Dict = De
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid connection.")
     validate_connection_scope(connection, payload.tenant_id, payload.subscription_id)
     session_id = str(uuid.uuid4())
-    outcome = run_agent_discovery_workflow(
-        request=request,
-        connection=connection,
-        tenant_id=payload.tenant_id,
-        subscription_id=payload.subscription_id,
-        session_id=session_id,
-        discovery_repo=discovery_repo,
-        execute_tool_with_retries_fn=execute_tool_with_retries,
-        categories=payload.categories,
-    )
+
+    if payload.layers:
+        outcome = run_layered_discovery_workflow(
+            request=request,
+            connection=connection,
+            tenant_id=payload.tenant_id,
+            subscription_id=payload.subscription_id,
+            session_id=session_id,
+            discovery_repo=discovery_repo,
+            execute_tool_with_retries_fn=execute_tool_with_retries,
+            layer_ids=payload.layers,
+        )
+    else:
+        outcome = run_agent_discovery_workflow(
+            request=request,
+            connection=connection,
+            tenant_id=payload.tenant_id,
+            subscription_id=payload.subscription_id,
+            session_id=session_id,
+            discovery_repo=discovery_repo,
+            execute_tool_with_retries_fn=execute_tool_with_retries,
+            categories=payload.categories,
+        )
     return Discovery(**outcome["discovery"])
+
+
+@app.get("/layers")
+def list_layers() -> List[Dict]:
+    """Return available discovery layers with metadata."""
+    return [
+        {
+            "layer_id": layer.layer_id,
+            "layer_number": layer.layer_number,
+            "label": layer.label,
+            "description": layer.description,
+            "depends_on": layer.depends_on,
+            "enabled": layer.enabled,
+        }
+        for layer in sorted(LAYER_REGISTRY.values(), key=lambda x: x.layer_number)
+    ]
+
+
+# ==============================================================================
+# Graph / Topology Endpoints
+# ==============================================================================
+
+
+@app.get("/discoveries/{discovery_id}")
+def get_discovery(
+    discovery_id: str,
+    user: Dict = Depends(get_current_user),
+) -> Discovery:
+    """Get a specific discovery by ID."""
+    doc = discovery_repo.get_by_id(discovery_id)
+    if not doc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Discovery not found.")
+    # Verify the discovery belongs to the user's connection
+    conn = connection_repo.get_by_id(doc.get("connection_id", ""))
+    if not conn or conn.get("user_id") != user["user_id"]:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Discovery not found.")
+    return Discovery(**doc)
+
+
+@app.get("/discoveries/{discovery_id}/graph")
+def get_discovery_graph(
+    discovery_id: str,
+    scope: Optional[str] = None,
+    include_edges: str = "contains,network_link,assigned_to,governed_by",
+    user: Dict = Depends(get_current_user),
+) -> Dict:
+    """Build and return graph representation of discovery results."""
+    from graph import build_graph_from_discovery
+
+    doc = discovery_repo.get_by_id(discovery_id)
+    if not doc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Discovery not found.")
+    conn = connection_repo.get_by_id(doc.get("connection_id", ""))
+    if not conn or conn.get("user_id") != user["user_id"]:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Discovery not found.")
+
+    graph_data = build_graph_from_discovery(doc)
+
+    # Filter edges by requested types
+    edge_types = set(t.strip() for t in include_edges.split(",") if t.strip())
+    if edge_types:
+        graph_data.edges = [e for e in graph_data.edges if e.label in edge_types]
+
+    return graph_data.dict()

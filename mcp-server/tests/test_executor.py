@@ -43,30 +43,6 @@ def sample_connection():
     }
 
 
-def test_executor_stub_mode(sample_request, sample_tool, sample_connection):
-    """Test executor in stub mode returns mock response."""
-    executor = ToolExecutor(apim_base_url=None, stub_mode=True, timeout=10.0)
-
-    response = executor.execute(sample_request, sample_tool, sample_connection)
-
-    assert response.status == "success"
-    assert response.result is not None
-    assert response.result["stub"] is True
-    assert "summary" in response.result
-    assert response.metadata.latency_ms > 0
-    assert response.metadata.status_code == 200
-
-
-def test_executor_stub_mode_includes_correlation(sample_request, sample_tool, sample_connection):
-    """Test that stub mode includes request metadata in response."""
-    executor = ToolExecutor(apim_base_url=None, stub_mode=True, timeout=10.0)
-
-    response = executor.execute(sample_request, sample_tool, sample_connection)
-
-    assert response.result["scope"]["tenant_id"] == "test-tenant"
-    assert response.result["scope"]["subscription_id"] == "test-sub"
-
-
 def test_executor_inject_token_success(sample_connection):
     """Test successful token injection."""
     executor = ToolExecutor(apim_base_url="https://apim.example.com", stub_mode=False, timeout=10.0)
@@ -110,14 +86,13 @@ def test_executor_inject_token_expired(sample_connection):
     assert "expired" in error.message.lower()
 
 
-def test_executor_build_apim_url(sample_tool):
-    """Test APIM URL construction."""
+def test_executor_build_arm_url(sample_tool):
+    """Test ARM URL construction."""
     executor = ToolExecutor(apim_base_url="https://apim.example.com", stub_mode=False, timeout=10.0)
     args = {"subscription_id": "abc-123"}
 
-    url = executor.build_apim_url(sample_tool, args)
+    url = executor.build_arm_url(sample_tool, args)
 
-    # In stub mode or without APIM, should use management.azure.com
     assert "https://" in url
 
 

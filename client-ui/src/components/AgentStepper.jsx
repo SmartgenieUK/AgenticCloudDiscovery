@@ -20,21 +20,16 @@ function stateClass(state) {
 
 /**
  * Default plan used for simulated progress while the request is in flight.
- * Mirrors the fixed stages of the agent workflow.
+ * Only shows generic workflow stages — actual service categories are dynamic
+ * and rendered from the API response after completion.
  */
 const DEFAULT_PLAN = [
   { name: "validate", label: "Validate", status: "pending" },
-  { name: "inventory", label: "Inventory Scan", status: "pending" },
-  { name: "compute", label: "Compute", status: "pending" },
-  { name: "storage", label: "Storage", status: "pending" },
-  { name: "databases", label: "Databases", status: "pending" },
-  { name: "networking", label: "Networking", status: "pending" },
-  { name: "app_services", label: "App Services", status: "pending" },
+  { name: "collect", label: "Collecting Resources", status: "pending" },
+  { name: "categorize", label: "Categorizing", status: "pending" },
   { name: "aggregate", label: "Aggregate", status: "pending" },
   { name: "persist", label: "Persist", status: "pending" },
 ];
-
-const AGENT_CATEGORIES = new Set(["compute", "storage", "databases", "networking", "app_services"]);
 
 /**
  * AgentStepper shows the multi-agent discovery pipeline with dynamic stages.
@@ -42,10 +37,11 @@ const AGENT_CATEGORIES = new Set(["compute", "storage", "databases", "networking
  * Props:
  *  - running: boolean (request in flight)
  *  - plan: array from API response (after completion)
+ *  - layerPlan: array of layer plan entries (when using layered workflow)
  *  - error: string (if the request failed)
  *  - response: full API response object
  */
-const AgentStepper = ({ running, plan, error, response }) => {
+const AgentStepper = ({ running, plan, layerPlan, error, response }) => {
   const [simulatedIndex, setSimulatedIndex] = useState(-1);
 
   const stages = plan && !running ? plan : DEFAULT_PLAN;
@@ -96,8 +92,11 @@ const AgentStepper = ({ running, plan, error, response }) => {
   const shouldShow = running || plan || error;
   if (!shouldShow) return null;
 
-  // Check if any stage is a service-category agent
-  const hasAgentGroup = stages.some((s) => AGENT_CATEGORIES.has(s.name));
+  // Build dynamic category summary from discovery results
+  const categories = response?.discovery?.results?.categories;
+  const categoryEntries = categories
+    ? Object.entries(categories).sort((a, b) => b[1].resource_count - a[1].resource_count)
+    : [];
 
   return (
     <div className="stepper-card">
@@ -108,57 +107,122 @@ const AgentStepper = ({ running, plan, error, response }) => {
         {!running && error && !plan && <span className="stepper-badge stepper-badge-error">Failed</span>}
       </div>
 
-      <div className="stepper-timeline">
-        {stages.map((stage, i) => {
-          const state = getStageState(i);
-          const detail = getStageDetail(i);
-          const isAgent = AGENT_CATEGORIES.has(stage.name);
-          const isFirstAgent = isAgent && (i === 0 || !AGENT_CATEGORIES.has(stages[i - 1]?.name));
-          const isLastAgent = isAgent && (i === stages.length - 1 || !AGENT_CATEGORIES.has(stages[i + 1]?.name));
-
-          return (
-            <div key={stage.name}>
-              {/* Group label before first agent */}
-              {isFirstAgent && hasAgentGroup && (
-                <div className="stepper-agent-group-label">Service Category Agents</div>
-              )}
-              <div
-                className={`stepper-step ${stateClass(state)} ${isAgent ? "stepper-step-agent" : ""} ${isFirstAgent ? "stepper-step-agent-first" : ""} ${isLastAgent ? "stepper-step-agent-last" : ""}`}
-              >
+      {/* Layered workflow rendering */}
+      {layerPlan && !running ? (
+        <div className="stepper-timeline">
+          {layerPlan.map((lp, li) => (
+            <div key={lp.layer_id} className="stepper-layer-group">
+              <div className="stepper-step">
                 <div className="stepper-connector-wrap">
-                  <div className={`stepper-icon ${stateClass(state)}`}>
-                    {statusIcon(state)}
+                  <div className={`stepper-icon ${stateClass(lp.status)}`}>
+                    {statusIcon(lp.status)}
                   </div>
-                  {i < stages.length - 1 && (
-                    <div className={`stepper-line ${state === "completed" ? "stepper-line-done" : ""}`} />
+                  {li < layerPlan.length - 1 && (
+                    <div className={`stepper-line ${lp.status === "completed" ? "stepper-line-done" : ""}`} />
                   )}
                 </div>
                 <div className="stepper-content">
-                  <div className="stepper-label">
-                    {stage.label || stage.name}
-                    {state === "skipped" && <span className="stepper-skip-tag">skipped</span>}
+                  <div className="stepper-layer-header">
+                    <span className="stepper-label">L{lp.layer_number}: {lp.label}</span>
+                    {lp.auto_resolved && <span className="stepper-auto-tag">auto</span>}
                   </div>
-                  {state === "failed" && error && (
-                    <div className="stepper-error-detail">{detail?.error || error}</div>
+                  {/* Sub-steps (tool invocations) */}
+                  {lp.steps && lp.steps.length > 0 && (
+                    <div className="stepper-sub-steps">
+                      {lp.steps.map((step, si) => (
+                        <div key={si} className="stepper-sub-step">
+                          <span className={`stepper-sub-icon ${stateClass(step.status)}`}>
+                            {statusIcon(step.status)}
+                          </span>
+                          <span className="stepper-sub-label">{step.label || step.name}</span>
+                          {step.detail?.resource_count != null && (
+                            <span className="stepper-sub-count">{step.detail.resource_count}</span>
+                          )}
+                        </div>
+                      ))}
+                    </div>
                   )}
-                  {detail && (state === "completed" || state === "failed") && (
-                    <div className="stepper-detail">
-                      {detail.summary && <span>{detail.summary}</span>}
-                      {detail.total_resources != null && <span>resources: {detail.total_resources}</span>}
-                      {detail.resource_count != null && <span>found: {detail.resource_count}</span>}
-                      {detail.categories_scanned != null && <span>categories: {detail.categories_scanned}</span>}
-                      {detail.providers_found?.length > 0 && (
-                        <span className="stepper-tool">{detail.providers_found.join(", ")}</span>
+                  {/* Analysis stub */}
+                  {lp.analysis && (
+                    <div className="stepper-sub-step stepper-sub-analysis">
+                      <span className={`stepper-sub-icon ${stateClass(lp.analysis.status)}`}>
+                        {statusIcon(lp.analysis.status)}
+                      </span>
+                      <span className="stepper-sub-label">{lp.analysis.label || "Analysis"}</span>
+                      {lp.analysis.detail?.mode === "stub" && (
+                        <span className="stepper-sub-stub">stub</span>
                       )}
-                      {detail.discovery_id && <span className="stepper-tool">id: {detail.discovery_id.slice(0, 8)}...</span>}
                     </div>
                   )}
                 </div>
               </div>
             </div>
-          );
-        })}
-      </div>
+          ))}
+
+          {/* Dynamic service categories from discovered resources */}
+          {categoryEntries.length > 0 && (
+            <div className="stepper-layer-group">
+              <div className="stepper-step">
+                <div className="stepper-connector-wrap">
+                  <div className="stepper-icon step-completed">{statusIcon("completed")}</div>
+                </div>
+                <div className="stepper-content">
+                  <div className="stepper-layer-header">
+                    <span className="stepper-label">Service Categories</span>
+                    <span className="stepper-sub-count">{categoryEntries.length}</span>
+                  </div>
+                  <div className="stepper-sub-steps">
+                    {categoryEntries.map(([ns, cat]) => (
+                      <div key={ns} className="stepper-sub-step">
+                        <span className="stepper-sub-icon step-completed">{statusIcon("completed")}</span>
+                        <span className="stepper-sub-label">{cat.label || ns}</span>
+                        <span className="stepper-sub-count">{cat.resource_count}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      ) : (
+        /* Flat workflow rendering (loading animation / legacy) */
+        <div className="stepper-timeline">
+          {stages.map((stage, i) => {
+            const state = getStageState(i);
+            const detail = getStageDetail(i);
+            return (
+              <div key={stage.name}>
+                <div className={`stepper-step ${stateClass(state)}`}>
+                  <div className="stepper-connector-wrap">
+                    <div className={`stepper-icon ${stateClass(state)}`}>
+                      {statusIcon(state)}
+                    </div>
+                    {i < stages.length - 1 && (
+                      <div className={`stepper-line ${state === "completed" ? "stepper-line-done" : ""}`} />
+                    )}
+                  </div>
+                  <div className="stepper-content">
+                    <div className="stepper-label">
+                      {stage.label || stage.name}
+                    </div>
+                    {state === "failed" && error && (
+                      <div className="stepper-error-detail">{detail?.error || error}</div>
+                    )}
+                    {detail && (state === "completed" || state === "failed") && (
+                      <div className="stepper-detail">
+                        {detail.summary && <span>{detail.summary}</span>}
+                        {detail.total_resources != null && <span>resources: {detail.total_resources}</span>}
+                        {detail.resource_count != null && <span>found: {detail.resource_count}</span>}
+                      </div>
+                    )}
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
 
       {/* Trace IDs after completion */}
       {response && !running && (

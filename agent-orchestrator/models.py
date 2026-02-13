@@ -109,6 +109,7 @@ class Connection(BaseModel):
     created_at: str
     updated_at: str
     rbac_tier: Optional[str] = None
+    display_name: Optional[str] = None
 
 
 # ==================== Discovery Models ====================
@@ -119,6 +120,7 @@ class DiscoveryRequest(BaseModel):
     tenant_id: Optional[str] = None
     subscription_id: Optional[str] = None
     categories: Optional[List[str]] = Field(None, description="Optional filter for service categories to scan")
+    layers: Optional[List[str]] = Field(None, description="Optional list of layer IDs to run (e.g. ['inventory', 'topology'])")
 
     @validator("tenant_id", always=True)
     def at_least_one_scope(cls, v, values):
@@ -152,6 +154,26 @@ class PlanStep(BaseModel):
     label: Optional[str] = None
 
 
+class LayerPlanStep(BaseModel):
+    """A sub-step within a layer (e.g., a single tool invocation or analysis phase)."""
+    name: str
+    status: str  # pending, in_progress, completed, skipped, failed
+    detail: Optional[Dict] = None
+    label: Optional[str] = None
+
+
+class LayerPlan(BaseModel):
+    """A layer-level plan entry grouping its sub-steps."""
+    layer_id: str
+    layer_number: int
+    label: str
+    status: str  # pending, in_progress, completed, skipped, failed
+    auto_resolved: bool = False
+    steps: List[LayerPlanStep] = []
+    analysis: Optional[LayerPlanStep] = None
+    detail: Optional[Dict] = None
+
+
 class ChatRequest(BaseModel):
     """Request model for chat/discovery via natural language."""
     message: str = Field(..., min_length=1, max_length=2000)
@@ -159,6 +181,7 @@ class ChatRequest(BaseModel):
     tenant_id: Optional[str] = None
     subscription_id: Optional[str] = None
     categories: Optional[List[str]] = Field(None, description="Optional filter for service categories to scan")
+    layers: Optional[List[str]] = Field(None, description="Optional list of layer IDs to run (e.g. ['inventory', 'topology'])")
     session_id: Optional[str] = None
 
     @validator("tenant_id", always=True)
@@ -174,8 +197,48 @@ class ChatResponse(BaseModel):
     trace_id: str
     correlation_id: str
     plan: List[PlanStep]
+    layer_plan: Optional[List[Dict]] = None
     discovery: Discovery
     final_response: str
+
+
+# ==================== Graph Models ====================
+
+
+class GraphNode(BaseModel):
+    """A node in the resource topology graph."""
+    id: str
+    label: str          # tenant | subscription | resource_group | resource
+    name: str
+    type: Optional[str] = None
+    provider_namespace: Optional[str] = None
+    location: Optional[str] = None
+    resource_group: Optional[str] = None
+    subscription_id: Optional[str] = None
+    properties: Optional[Dict] = None
+    tags: Optional[Dict] = None
+    children_count: int = 0
+
+
+class GraphEdge(BaseModel):
+    """An edge (relationship) in the resource topology graph."""
+    id: str
+    source: str
+    target: str
+    label: str          # contains | network_link | assigned_to | governed_by
+    edge_type: Optional[str] = None  # sub-type like nic_to_vm
+    properties: Optional[Dict] = None
+
+
+class GraphData(BaseModel):
+    """Complete graph representation of a discovery snapshot."""
+    nodes: List[GraphNode]
+    edges: List[GraphEdge]
+    hierarchy: Dict     # nested tree for tree panel
+    stats: Dict         # counts by type
+    discovery_id: str
+    tenant_id: Optional[str] = None
+    subscription_id: Optional[str] = None
 
 
 # ==================== Helper Functions ====================
@@ -210,4 +273,5 @@ def sanitize_connection(doc: Dict) -> Connection:
         created_at=doc.get("created_at", ""),
         updated_at=doc.get("updated_at", ""),
         rbac_tier=doc.get("rbac_tier"),
+        display_name=doc.get("display_name"),
     )

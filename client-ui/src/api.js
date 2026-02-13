@@ -28,4 +28,13 @@ export const api = {
   listConnections: () => request("/connections"),
   createConnection: (payload) => request("/connections", { method: "POST", body: JSON.stringify(payload) }),
   chat: (payload) => request("/chat", { method: "POST", body: JSON.stringify(payload) }),
+  listLayers: () => request("/layers"),
+  getDiscovery: (id) => request(`/discoveries/${id}`),
+  getDiscoveryGraph: (id, opts = {}) => {
+    const params = new URLSearchParams();
+    if (opts.scope) params.set("scope", opts.scope);
+    if (opts.include_edges) params.set("include_edges", opts.include_edges);
+    const qs = params.toString();
+    return request(`/discoveries/${id}/graph${qs ? `?${qs}` : ""}`);
+  },
 };
