@@ -13,3 +13,5 @@ Provide:
    - what exists and is working
    - what to build next
    - the guardrails to follow (execution boundary, policy enforcement, telemetry, no secrets)
+
+7) Save the Daily check point in techcheckpoint name the file as DailyCheckPoint_dd_mm_yyyy_hh_mm.md
